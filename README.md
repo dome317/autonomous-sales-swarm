@@ -278,6 +278,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 MIT — see [LICENSE](LICENSE) for details.
 
----
-
-**Built with Claude Code** — an autonomous multi-agent system that demonstrates production-grade AI orchestration patterns.
