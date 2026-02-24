@@ -1,0 +1,343 @@
+{
+  "name": "Sales Swarm — Qualification & Scoring",
+  "tags": ["sales-swarm", "qualification", "scoring"],
+  "nodes": [
+    {
+      "id": "qs-sticky-setup",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [250, 100],
+      "parameters": {
+        "content": "## Qualification & Scoring Sub-Workflow\n\n**Required Credentials:**\n- `{{ANTHROPIC_CRED}}` — Anthropic API key (Claude Sonnet 4)\n- `{{SUPABASE_CRED}}` — Supabase project URL + service role key\n- `{{HUBSPOT_CRED}}` — HubSpot private app token\n\n**Required Supabase setup:**\n- Table: `documents` with pgvector column `embedding` (1536-dim)\n- Function: `match_documents(query_embedding, match_count, filter)` must exist\n- Table: `lead_memory` — see `infrastructure/init-supabase.sql`\n\n**Input (from supervisor via Execute Workflow):**\n```json\n{\n  \"lead_id\": \"string\",\n  \"practice_name\": \"string\",\n  \"company_type\": \"string\",\n  \"location\": \"string\",\n  \"pain_points\": [\"string\"],\n  \"website\": \"string\",\n  \"treatments\": [\"string\"],\n  \"team_size\": \"number\",\n  \"lead_source\": \"string\",\n  \"hubspot_contact_id\": \"string\"\n}\n```\n\n**Output returned to supervisor:**\n```json\n{\n  \"lead_id\": \"string\",\n  \"tier\": \"hot|warm|cold\",\n  \"total_score\": 0-100,\n  \"scoring\": { ... },\n  \"tags\": [\"string\"],\n  \"recommended_approach\": \"string\"\n}\n```",
+        "height": 520,
+        "width": 480,
+        "color": 5
+      }
+    },
+    {
+      "id": "qs-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 700],
+      "parameters": {}
+    },
+    {
+      "id": "qs-build-rag-query",
+      "name": "Build RAG Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 700],
+      "parameters": {
+        "jsCode": "// Build a semantic search query from lead attributes.\n// Combines practice type, location, and pain points into a\n// natural-language query suited for pgvector cosine similarity.\nconst lead = $input.first().json;\n\nconst painPoints = Array.isArray(lead.pain_points)\n  ? lead.pain_points.join(', ')\n  : (lead.pain_points || 'allgemeiner Digitalisierungsbedarf');\n\nconst treatments = Array.isArray(lead.treatments)\n  ? lead.treatments.join(', ')\n  : (lead.treatments || '');\n\nconst query = [\n  `B2B-Unternehmen ${lead.company_type || ''} in ${lead.location || 'Deutschland'}.`,\n  `Schmerzpunkte: ${painPoints}.`,\n  treatments ? `Behandlungsschwerpunkte: ${treatments}.` : '',\n  `Teamgröße: ${lead.team_size || 'unbekannt'} Mitarbeiter.`,\n  'Sales Swarm-Features, Case Studies, Erfahrungswerte ähnlicher Unternehmen.'\n].filter(Boolean).join(' ');\n\nreturn {\n  json: {\n    ...lead,\n    rag_query: query\n  }\n};"
+      }
+    },
+    {
+      "id": "qs-vector-store",
+      "name": "Retrieve RAG Context",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1,
+      "position": [750, 700],
+      "parameters": {
+        "mode": "retrieve",
+        "tableName": "documents",
+        "queryName": "match_documents",
+        "topK": 5,
+        "query": "={{ $json.rag_query }}"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "{{SUPABASE_CRED}}",
+          "name": "Supabase Sales Swarm"
+        }
+      }
+    },
+    {
+      "id": "qs-merge-context",
+      "name": "Merge Lead + RAG Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 700],
+      "parameters": {
+        "jsCode": "// Merge the enriched lead data with retrieved RAG documents.\n// The RAG documents arrive on a separate input branch from the\n// vector store; we combine both into a single item for the agent.\nconst lead = $('Build RAG Query').first().json;\nconst ragItems = $('Retrieve RAG Context').all();\n\nconst ragContext = ragItems\n  .map((item, idx) => {\n    const doc = item.json;\n    const source = doc.metadata?.source || doc.metadata?.filename || `doc-${idx + 1}`;\n    const content = doc.pageContent || doc.content || JSON.stringify(doc);\n    return `### Quelle: ${source}\\n${content}`;\n  })\n  .join('\\n\\n---\\n\\n');\n\nreturn {\n  json: {\n    lead,\n    rag_context: ragContext || 'Kein RAG-Kontext verfügbar.',\n    rag_source_count: ragItems.length\n  }\n};"
+      }
+    },
+    {
+      "id": "qs-agent",
+      "name": "Qualification Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [1250, 700],
+      "parameters": {
+        "options": {
+          "systemMessage": "Du bist der Qualifizierungs-Spezialist im Sales Swarm-Swarm. Du bewertest Leads anhand eines gewichteten Scoring-Modells und ordnest sie in Tiers ein.\n\n## Deine Rolle\n\nDu erhältst einen angereicherten Lead und Sales Swarm-Produktwissen aus der RAG-Datenbank. Du bewertest den Lead nach fünf Kriterien und berechnest einen Score von 0-100.\n\n## Scoring-Kriterien\n\n<scoring_model>\n### 1. Unternehmensgröße (Gewicht: 25%)\n- 1 Mitarbeiter: 30 Punkte\n- 2-3 Mitarbeiter: 60 Punkte\n- 4-7 Mitarbeiter: 85 Punkte\n- 8+ Mitarbeiter (MVZ): 100 Punkte\n\n### 2. Pain-Match (Gewicht: 30%)\nWie gut passen die identifizierten Schmerzpunkte zu Sales Swarms Lösung?\n- Kein erkennbarer Pain: 10 Punkte\n- Genereller Digitalisierungsbedarf: 40 Punkte\n- Spezifischer Pain (z.B. niedrige Proposal-Akzeptanz): 70 Punkte\n- Akuter Pain + aktive Suche nach Lösung: 100 Punkte\n\n### 3. Digitalisierungsbereitschaft (Gewicht: 20%)\n- Veraltete Website, kein Online-Booking: 20 Punkte\n- Durchschnittliche Website, kein Online-Booking: 50 Punkte\n- Moderne Website, teilweise digitalisiert: 75 Punkte\n- Moderne Website + Online-Booking + Social Media: 90 Punkte\n\n### 4. Region-Fit (Gewicht: 15%)\n- Neue Region ohne Referenzkunden: 40 Punkte\n- Region mit 1-2 Referenzkunden: 70 Punkte\n- Kernmarkt mit vielen Referenzen: 90 Punkte\n- Gleiche Stadt wie Case Study: 100 Punkte\n\n### 5. Source-Qualität (Gewicht: 10%)\n- Cold Outreach / Liste: 20 Punkte\n- Event / Messe: 50 Punkte\n- Website-Formular (Inbound): 80 Punkte\n- Empfehlung / Referral: 100 Punkte\n</scoring_model>\n\n## RAG-Kontext nutzen\n\n<rag_instructions>\nNutze den bereitgestellten RAG-Kontext (Sales Swarm-Features, Case Studies, Swarm Learnings) um:\n1. Pain-Match genauer zu bewerten (passt ein Feature exakt zum Problem?)\n2. Ähnliche erfolgreiche Leads als Referenz zu nutzen\n3. Regionale Insights aus Swarm Learnings einzubeziehen\n4. Scoring basierend auf vergangenen Lernerfahrungen zu kalibrieren\n</rag_instructions>\n\n## Output-Format\n\n<output_format>\nAntworte NUR mit folgendem JSON (kein Markdown-Wrapper):\n```\n{\n  \"lead_id\": \"string\",\n  \"scoring\": {\n    \"practice_size\": { \"raw\": 0, \"reasoning\": \"string\" },\n    \"pain_match\": { \"raw\": 0, \"reasoning\": \"string\" },\n    \"digitalization_readiness\": { \"raw\": 0, \"reasoning\": \"string\" },\n    \"region_fit\": { \"raw\": 0, \"reasoning\": \"string\" },\n    \"source_quality\": { \"raw\": 0, \"reasoning\": \"string\" }\n  },\n  \"tags\": [\"string\"],\n  \"reasoning\": \"Gesamtbegründung auf Deutsch\",\n  \"recommended_approach\": \"Konkreter Hinweis für Outreach-Agent auf Deutsch\",\n  \"rag_references\": [\"string\"]\n}\n```\n</output_format>\n\n## Regeln\n\n- Berechne IMMER alle 5 Kriterien — keine Abkürzungen\n- Begründe jede Einzelbewertung im `reasoning`-Feld des Kriteriums\n- Bei fehlenden Daten: Verwende konservative Schätzung (Mitte des Bereichs)\n- Tags sollen für Segmentierung und Filterung nutzbar sein\n- `recommended_approach` ist ein konkreter Hinweis für den Outreach-Agent\n- Antworte ausschließlich auf Deutsch"
+        },
+        "promptType": "define",
+        "text": "=## Lead-Daten\n\n```json\n{{ JSON.stringify($json.lead, null, 2) }}\n```\n\n## RAG-Kontext ({{ $json.rag_source_count }} Quellen abgerufen)\n\n{{ $json.rag_context }}\n\nBitte bewerte diesen Lead nach dem Scoring-Modell und liefere das strukturierte JSON-Ergebnis."
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "{{ANTHROPIC_CRED}}",
+          "name": "Anthropic Sales Swarm"
+        }
+      }
+    },
+    {
+      "id": "qs-llm",
+      "name": "Claude Sonnet 4",
+      "type": "@n8n/n8n-nodes-langchain.lmAnthropicChatModel",
+      "typeVersion": 1,
+      "position": [1250, 900],
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "temperature": 0.1,
+          "maxTokens": 2000
+        }
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "{{ANTHROPIC_CRED}}",
+          "name": "Anthropic Sales Swarm"
+        }
+      }
+    },
+    {
+      "id": "qs-score-compute",
+      "name": "Compute Weighted Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 700],
+      "parameters": {
+        "jsCode": "// Parse agent output JSON and compute weighted total score.\n// Determines tier: hot >= 75, warm >= 45, cold < 45.\nconst agentOutput = $input.first().json.output || $input.first().json.text || '';\n\nlet parsed;\ntry {\n  // Strip potential markdown fences if agent wraps in ```json ... ```\n  const cleaned = agentOutput\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/i, '')\n    .trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(`Agent output could not be parsed as JSON: ${e.message}\\n\\nRaw output:\\n${agentOutput}`);\n}\n\nconst scoring = parsed.scoring;\nif (!scoring) {\n  throw new Error('Agent output missing \"scoring\" field.');\n}\n\nconst weights = {\n  practice_size: 0.25,\n  pain_match: 0.30,\n  digitalization_readiness: 0.20,\n  region_fit: 0.15,\n  source_quality: 0.10\n};\n\nlet total = 0;\nfor (const [key, weight] of Object.entries(weights)) {\n  total += (scoring[key]?.raw || 0) * weight;\n}\n\nconst tier = total >= 75 ? 'hot' : total >= 45 ? 'warm' : 'cold';\n\n// Attach weighted values to each criterion for transparency\nconst enrichedScoring = {};\nfor (const [key, weight] of Object.entries(weights)) {\n  enrichedScoring[key] = {\n    ...scoring[key],\n    weighted: Math.round((scoring[key]?.raw || 0) * weight * 100) / 100\n  };\n}\n\nreturn {\n  json: {\n    lead_id: parsed.lead_id,\n    scoring: enrichedScoring,\n    total_score: Math.round(total * 100) / 100,\n    tier,\n    tags: parsed.tags || [],\n    reasoning: parsed.reasoning || '',\n    recommended_approach: parsed.recommended_approach || '',\n    rag_references: parsed.rag_references || []\n  }\n};"
+      }
+    },
+    {
+      "id": "qs-hubspot-update",
+      "name": "Update HubSpot Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [1750, 600],
+      "parameters": {
+        "resource": "contact",
+        "operation": "update",
+        "contactId": "={{ $('Execute Workflow Trigger').first().json.hubspot_contact_id }}",
+        "additionalFields": {
+          "customPropertiesUi": {
+            "customPropertiesValues": [
+              {
+                "property": "swarm_lead_score",
+                "value": "={{ $json.total_score }}"
+              },
+              {
+                "property": "swarm_lead_tier",
+                "value": "={{ $json.tier }}"
+              },
+              {
+                "property": "swarm_scoring_tags",
+                "value": "={{ $json.tags.join(';') }}"
+              },
+              {
+                "property": "swarm_recommended_approach",
+                "value": "={{ $json.recommended_approach }}"
+              },
+              {
+                "property": "swarm_scored_at",
+                "value": "={{ new Date().toISOString() }}"
+              }
+            ]
+          }
+        }
+      },
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "{{HUBSPOT_CRED}}",
+          "name": "HubSpot Sales Swarm"
+        }
+      }
+    },
+    {
+      "id": "qs-supabase-memory",
+      "name": "Store Scoring in Lead Memory",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1750, 800],
+      "parameters": {
+        "operation": "insert",
+        "tableId": "lead_memory",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "lead_id",
+              "fieldValue": "={{ $('Execute Workflow Trigger').first().json.lead_id }}"
+            },
+            {
+              "fieldId": "memory_type",
+              "fieldValue": "scoring"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ JSON.stringify($('Compute Weighted Score').first().json) }}"
+            },
+            {
+              "fieldId": "tier",
+              "fieldValue": "={{ $('Compute Weighted Score').first().json.tier }}"
+            },
+            {
+              "fieldId": "total_score",
+              "fieldValue": "={{ $('Compute Weighted Score').first().json.total_score }}"
+            },
+            {
+              "fieldId": "tags",
+              "fieldValue": "={{ $('Compute Weighted Score').first().json.tags }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "{{SUPABASE_CRED}}",
+          "name": "Supabase Sales Swarm"
+        }
+      }
+    },
+    {
+      "id": "qs-return",
+      "name": "Return Scoring Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 700],
+      "parameters": {
+        "jsCode": "// Build the final return payload for the supervisor workflow.\n// Merges the computed score with the original lead metadata.\nconst score = $('Compute Weighted Score').first().json;\nconst lead = $('Execute Workflow Trigger').first().json;\n\nreturn {\n  json: {\n    lead_id: lead.lead_id,\n    hubspot_contact_id: lead.hubspot_contact_id,\n    practice_name: lead.practice_name,\n    company_type: lead.company_type,\n    location: lead.location,\n    lead_source: lead.lead_source,\n    tier: score.tier,\n    total_score: score.total_score,\n    scoring: score.scoring,\n    tags: score.tags,\n    reasoning: score.reasoning,\n    recommended_approach: score.recommended_approach,\n    rag_references: score.rag_references,\n    scored_at: new Date().toISOString(),\n    workflow: '02-qualification-scoring'\n  }\n};"
+      }
+    },
+    {
+      "id": "qs-error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 1050],
+      "parameters": {
+        "jsCode": "// Catch-all error handler: logs the failure and returns a safe\n// fallback payload so the supervisor can continue gracefully.\nconst error = $input.first().json.error || {};\nconst lead = $('Execute Workflow Trigger').first().json;\n\nconsole.error('[02-qualification-scoring] Error:', JSON.stringify(error));\n\nreturn {\n  json: {\n    lead_id: lead.lead_id || 'unknown',\n    hubspot_contact_id: lead.hubspot_contact_id || null,\n    practice_name: lead.practice_name || 'unknown',\n    tier: 'cold',\n    total_score: 0,\n    scoring: {},\n    tags: ['scoring-error'],\n    reasoning: `Scoring fehlgeschlagen: ${error.message || 'Unbekannter Fehler'}`,\n    recommended_approach: 'Manuelles Review erforderlich.',\n    error: true,\n    error_message: error.message || 'Unknown error',\n    scored_at: new Date().toISOString(),\n    workflow: '02-qualification-scoring'\n  }\n};"
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build RAG Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build RAG Query": {
+      "main": [
+        [
+          {
+            "node": "Retrieve RAG Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve RAG Context": {
+      "main": [
+        [
+          {
+            "node": "Merge Lead + RAG Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Lead + RAG Context": {
+      "main": [
+        [
+          {
+            "node": "Qualification Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualification Agent": {
+      "main": [
+        [
+          {
+            "node": "Compute Weighted Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Weighted Score": {
+      "main": [
+        [
+          {
+            "node": "Update HubSpot Contact",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Store Scoring in Lead Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update HubSpot Contact": {
+      "main": [
+        [
+          {
+            "node": "Return Scoring Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Scoring in Lead Memory": {
+      "main": [
+        [
+          {
+            "node": "Return Scoring Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet 4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Qualification Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "pinData": {}
+}

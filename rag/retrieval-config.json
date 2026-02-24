@@ -1,0 +1,36 @@
+{
+  "embedding_model": "text-embedding-3-small",
+  "embedding_dimensions": 1536,
+  "retrieval": {
+    "match_threshold": 0.78,
+    "match_count": 5,
+    "rerank": false
+  },
+  "chunking": {
+    "chunk_size_tokens": 500,
+    "chunk_overlap_tokens": 100,
+    "strategy": "recursive_text_splitter"
+  },
+  "multi_query": {
+    "enabled": true,
+    "max_sub_queries": 3,
+    "description": "For complex queries, decompose into sub-queries, retrieve for each, then merge and deduplicate results"
+  },
+  "tables": {
+    "documents": {
+      "function": "match_documents",
+      "description": "Product knowledge, features, case studies, compliance docs",
+      "use_for": ["product_questions", "support_queries", "outreach_context"]
+    },
+    "lead_memory": {
+      "function": "match_lead_memory",
+      "description": "Per-lead interaction history and enrichment data",
+      "use_for": ["lead_context", "personalization", "follow_up"]
+    },
+    "swarm_learnings": {
+      "function": "match_swarm_learnings",
+      "description": "Accumulated insights from lead outcomes",
+      "use_for": ["scoring_calibration", "outreach_optimization", "channel_selection"]
+    }
+  }
+}

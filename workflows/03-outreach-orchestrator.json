@@ -1,0 +1,700 @@
+{
+  "name": "Sales Swarm — Outreach Orchestrator",
+  "tags": ["sales-swarm", "outreach", "multi-channel"],
+  "nodes": [
+    {
+      "id": "out-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {}
+    },
+    {
+      "id": "out-setup-note",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [250, 80],
+      "parameters": {
+        "content": "## Outreach Orchestrator — Setup\n\n**Required Credentials:**\n- `{{ANTHROPIC_CRED}}` — Anthropic API key (Claude Sonnet)\n- `{{SUPABASE_CRED}}` — Supabase service role key\n- `{{GMAIL_CRED}}` — Gmail OAuth2\n- `{{SLACK_CRED}}` — Slack Bot Token\n\n**Input schema (from supervisor):**\n```json\n{\n  \"lead_id\": \"string\",\n  \"score\": 0-100,\n  \"tier\": \"hot | warm\",\n  \"practice_name\": \"string\",\n  \"contact_name\": \"string\",\n  \"contact_email\": \"string\",\n  \"contact_phone\": \"string\",\n  \"channel\": \"email | whatsapp | linkedin\",\n  \"enrichment\": { ... },\n  \"pain_points\": [\"string\"]\n}\n```\n\n**WhatsApp:** Requires WhatsApp Business API access token in `WHATSAPP_TOKEN` env var.\n**A/B Split:** Variant A = Pain-focused, Variant B = Value-focused.",
+        "height": 340,
+        "width": 480,
+        "color": 5
+      }
+    },
+    {
+      "id": "out-validate-input",
+      "name": "Validate Lead Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "parameters": {
+        "jsCode": "// Validate incoming lead data from supervisor\nconst lead = $input.item.json;\n\nconst requiredFields = ['lead_id', 'score', 'tier', 'channel', 'contact_email'];\nconst missing = requiredFields.filter(f => !lead[f]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required lead fields: ${missing.join(', ')}`);\n}\n\nconst allowedTiers = ['hot', 'warm'];\nif (!allowedTiers.includes(lead.tier)) {\n  throw new Error(`Invalid tier '${lead.tier}'. Only hot/warm leads reach outreach.`);\n}\n\nconst allowedChannels = ['email', 'whatsapp', 'linkedin'];\nif (!allowedChannels.includes(lead.channel)) {\n  throw new Error(`Invalid channel '${lead.channel}'.`);\n}\n\n// Assign random A/B variant (50/50 split)\nconst abVariant = Math.random() < 0.5 ? 'A' : 'B';\n\nreturn {\n  ...lead,\n  ab_variant: abVariant,\n  validated_at: new Date().toISOString()\n};"
+      }
+    },
+    {
+      "id": "out-rag-retrieve",
+      "name": "Retrieve RAG Context",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1,
+      "position": [750, 300],
+      "parameters": {
+        "mode": "retrieve",
+        "tableName": "documents",
+        "queryName": "match_documents",
+        "topK": 5,
+        "query": "={{ $json.pain_points ? $json.pain_points.join(' ') + ' ' + $json.enrichment?.company_type : $json.practice_name + ' b2b case study' }}",
+        "credentials": {
+          "supabaseApi": "{{SUPABASE_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "out-format-rag-context",
+      "name": "Format RAG Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300],
+      "parameters": {
+        "jsCode": "// Merge RAG results back onto lead data\nconst lead = $('Validate Lead Input').item.json;\nconst ragItems = $input.all();\n\nconst ragContext = ragItems\n  .map(item => item.json?.pageContent || item.json?.content || '')\n  .filter(Boolean)\n  .join('\\n\\n---\\n\\n');\n\nreturn {\n  ...lead,\n  rag_context: ragContext || 'Kein spezifischer Kontext verfügbar.',\n  rag_sources_count: ragItems.length\n};"
+      }
+    },
+    {
+      "id": "out-ab-split",
+      "name": "A/B Variant Split",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1250, 300],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ab_variant }}",
+                    "rightValue": "A",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Variant A"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ab_variant }}",
+                    "rightValue": "B",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Variant B"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "out-agent-variant-a",
+      "name": "AI Agent — Pain-Focused (A)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [1500, 150],
+      "parameters": {
+        "options": {
+          "systemMessage": "Du bist der Sales Swarm Outreach-Spezialist — VARIANTE A: SCHMERZ-FOKUSSIERT.\n\n## Deine Rolle\nDu generierst hyper-personalisierte Outreach-Nachrichten auf Deutsch für B2B-Unternehmen. Variante A fokussiert auf konkrete Schmerzpunkte und Probleme der Unternehmen.\n\n## Tonalität\n<tone>\n- Du-Form: Professionell aber persönlich\n- B2B-Fachbegriffe: Proposal, Service, Follow-up, Office-Manager, branchenübliche Abrechnungssysteme natürlich verwenden\n- Kein Marketing-Sprech: Nur belegbare Zahlen\n- Empathisch: Verständnis für Geschäftsalltag zeigen\n- Kurz und prägnant: Geschäftsführer haben wenig Zeit\n</tone>\n\n## Variante A — Schmerz-Fokussiert\nBeginn mit dem spezifischen Pain Point der Unternehmen. Zeige, dass du ihre Situation verstehst. Stelle eine provozierende Frage, die den Schmerz benennt.\n\nStruktur:\n1. Spezifische Beobachtung zur Unternehmen (1 Satz)\n2. Schmerz-Frage: 'Wie zufrieden seid ihr aktuell mit...'?\n3. Konkrete Zahl aus RAG-Kontext (Case Study)\n4. Einladung zu 15-Minuten-Call\n\n## Regeln\n- NIEMALS generische Nachrichten — mindestens 2 praxisspezifische Elemente\n- Maximal 3 Kontaktversuche insgesamt\n- Sende-Zeitempfehlung: Di–Do, 10:00–11:30 oder 14:00–15:30\n- Erstelle immer die vollständige Follow-up-Sequenz (Tag 3, Tag 7)\n\n## Output-Format\nGib immer valides JSON zurück:\n```json\n{\n  \"lead_id\": \"string\",\n  \"outreach\": {\n    \"channel\": \"email | whatsapp | linkedin\",\n    \"subject\": \"string\",\n    \"body\": \"string\",\n    \"personalization_elements\": [\"string\"],\n    \"follow_up_sequence\": [\n      {\"delay_days\": 3, \"channel\": \"email\", \"subject\": \"string\", \"body\": \"string\"},\n      {\"delay_days\": 7, \"channel\": \"email\", \"subject\": \"string\", \"body\": \"string\"}\n    ],\n    \"ab_variant\": \"A\",\n    \"send_time_recommendation\": \"string\"\n  },\n  \"reasoning\": \"string\"\n}\n```"
+        }
+      }
+    },
+    {
+      "id": "out-agent-variant-b",
+      "name": "AI Agent — Value-Focused (B)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [1500, 450],
+      "parameters": {
+        "options": {
+          "systemMessage": "Du bist der Sales Swarm Outreach-Spezialist — VARIANTE B: WERT-FOKUSSIERT.\n\n## Deine Rolle\nDu generierst hyper-personalisierte Outreach-Nachrichten auf Deutsch für B2B-Unternehmen. Variante B fokussiert auf den konkreten Mehrwert und positive Ergebnisse.\n\n## Tonalität\n<tone>\n- Du-Form: Professionell aber persönlich\n- B2B-Fachbegriffe: Proposal, Service, Follow-up, Office-Manager, branchenübliche Abrechnungssysteme natürlich verwenden\n- Kein Marketing-Sprech: Nur belegbare Zahlen\n- Inspirierend: Zeige, was möglich ist\n- Kurz und prägnant: Geschäftsführer haben wenig Zeit\n</tone>\n\n## Variante B — Wert-Fokussiert\nBeginn mit einem konkreten Erfolgsbeispiel (aus RAG-Kontext). Zeige, was ähnliche Unternehmen erreicht haben. Mache ein konkretes Angebot.\n\nStruktur:\n1. Konkretes Ergebnis einer ähnlichen Unternehmen (1-2 Sätze)\n2. Verbindung zur Ziel-Unternehmen: 'Bei einer Unternehmen wie eurer...'\n3. Spezifisches Angebot: kostenloser Test, Pilotprojekt\n4. Niedrigschwellige nächste Aktion\n\n## Regeln\n- NIEMALS generische Nachrichten — mindestens 2 praxisspezifische Elemente\n- Maximal 3 Kontaktversuche insgesamt\n- Sende-Zeitempfehlung: Di–Do, 10:00–11:30 oder 14:00–15:30\n- Erstelle immer die vollständige Follow-up-Sequenz (Tag 3, Tag 7)\n\n## Output-Format\nGib immer valides JSON zurück:\n```json\n{\n  \"lead_id\": \"string\",\n  \"outreach\": {\n    \"channel\": \"email | whatsapp | linkedin\",\n    \"subject\": \"string\",\n    \"body\": \"string\",\n    \"personalization_elements\": [\"string\"],\n    \"follow_up_sequence\": [\n      {\"delay_days\": 3, \"channel\": \"email\", \"subject\": \"string\", \"body\": \"string\"},\n      {\"delay_days\": 7, \"channel\": \"email\", \"subject\": \"string\", \"body\": \"string\"}\n    ],\n    \"ab_variant\": \"B\",\n    \"send_time_recommendation\": \"string\"\n  },\n  \"reasoning\": \"string\"\n}\n```"
+        }
+      }
+    },
+    {
+      "id": "out-llm-a",
+      "name": "Claude Sonnet (Variant A)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1500, 0],
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "maxTokens": 2048,
+          "temperature": 0.7
+        },
+        "credentials": {
+          "anthropicApi": "{{ANTHROPIC_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "out-llm-b",
+      "name": "Claude Sonnet (Variant B)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1500, 600],
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "maxTokens": 2048,
+          "temperature": 0.7
+        },
+        "credentials": {
+          "anthropicApi": "{{ANTHROPIC_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "out-merge",
+      "name": "Merge Variants",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1750, 300],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "out-parse-agent-output",
+      "name": "Parse Agent Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "parameters": {
+        "jsCode": "// Parse the AI agent's JSON output and merge with original lead data\nconst item = $input.item.json;\n\n// Agent output may be in .output or .text field depending on n8n version\nconst rawOutput = item.output || item.text || item.message || '';\n\nlet agentResult;\ntry {\n  // Strip markdown code fences if present\n  const cleaned = rawOutput.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  agentResult = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(`Failed to parse agent JSON output: ${e.message}. Raw: ${rawOutput.slice(0, 200)}`);\n}\n\nif (!agentResult.outreach) {\n  throw new Error('Agent output missing required \"outreach\" field.');\n}\n\nreturn {\n  ...item,\n  parsed_outreach: agentResult.outreach,\n  outreach_reasoning: agentResult.reasoning || '',\n  channel: agentResult.outreach.channel,\n  ab_variant: agentResult.outreach.ab_variant\n};"
+      }
+    },
+    {
+      "id": "out-channel-router",
+      "name": "Route by Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [2250, 300],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "WhatsApp"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "linkedin",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "LinkedIn"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      }
+    },
+    {
+      "id": "out-send-email",
+      "name": "Send Email via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [2500, 100],
+      "parameters": {
+        "operation": "send",
+        "sendTo": "={{ $json.contact_email }}",
+        "subject": "={{ $json.parsed_outreach.subject }}",
+        "message": "={{ $json.parsed_outreach.body }}",
+        "options": {
+          "replyTo": "swarm-sales@example.com",
+          "appendAttribution": false
+        },
+        "credentials": {
+          "gmailOAuth2": "{{GMAIL_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "out-send-whatsapp",
+      "name": "Send WhatsApp Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2500, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v19.0/{{ $env.WHATSAPP_PHONE_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.WHATSAPP_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "messaging_product": "whatsapp",
+          "recipient_type": "individual",
+          "to": "={{ $json.contact_phone }}",
+          "type": "text",
+          "text": {
+            "preview_url": false,
+            "body": "={{ $json.parsed_outreach.body }}"
+          }
+        },
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "out-notify-linkedin",
+      "name": "Notify Sales — LinkedIn",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [2500, 500],
+      "parameters": {
+        "operation": "postMessage",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "sales-outreach",
+          "mode": "name"
+        },
+        "text": "LinkedIn Outreach — Manueller Schritt erforderlich",
+        "blocksUi": {
+          "blocksValues": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*LinkedIn Outreach — Manuell*\n\n*Lead:* {{ $json.practice_name }} ({{ $json.contact_name }})\n*Score:* {{ $json.score }} ({{ $json.tier }})\n*Variante:* {{ $json.ab_variant }}\n\n*Nachricht:*\n{{ $json.parsed_outreach.body }}\n\n*LinkedIn-Profil suchen und Verbindungsanfrage senden.*"
+              }
+            },
+            {
+              "type": "actions",
+              "elements": [
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "Als erledigt markieren"
+                  },
+                  "style": "primary",
+                  "value": "={{ $json.lead_id }}"
+                }
+              ]
+            }
+          ]
+        },
+        "credentials": {
+          "slackApi": "{{SLACK_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "out-log-memory",
+      "name": "Log Outreach to lead_memory",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2750, 300],
+      "parameters": {
+        "operation": "create",
+        "tableId": "lead_memory",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "lead_id",
+              "fieldValue": "={{ $json.lead_id }}"
+            },
+            {
+              "fieldId": "memory_type",
+              "fieldValue": "outreach"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ JSON.stringify({ channel: $json.channel, ab_variant: $json.ab_variant, subject: $json.parsed_outreach.subject, body: $json.parsed_outreach.body, personalization_elements: $json.parsed_outreach.personalization_elements, send_time_recommendation: $json.parsed_outreach.send_time_recommendation }) }}"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ JSON.stringify({ score: $json.score, tier: $json.tier, practice_name: $json.practice_name, outreach_reasoning: $json.outreach_reasoning, rag_sources_count: $json.rag_sources_count }) }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "credentials": {
+          "supabaseApi": "{{SUPABASE_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "out-wait-reply",
+      "name": "Wait 24h — Reply Window",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3000, 300],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 24,
+        "unit": "hours"
+      },
+      "webhookId": "out-wait-reply-webhook"
+    },
+    {
+      "id": "out-format-followup",
+      "name": "Format Follow-Up Sequence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3250, 300],
+      "parameters": {
+        "jsCode": "// Format the follow-up sequence for scheduling or downstream processing\nconst item = $input.item.json;\nconst outreach = item.parsed_outreach || {};\nconst followUps = outreach.follow_up_sequence || [];\n\nconst now = new Date();\n\nconst formattedSequence = followUps.map((step, index) => {\n  const scheduledAt = new Date(now);\n  scheduledAt.setDate(scheduledAt.getDate() + (step.delay_days || (index + 1) * 3));\n\n  // Adjust to optimal send time: next Tuesday/Wednesday/Thursday at 10:30\n  const day = scheduledAt.getDay(); // 0=Sun, 6=Sat\n  if (day === 0) scheduledAt.setDate(scheduledAt.getDate() + 2); // Sun → Tue\n  if (day === 5) scheduledAt.setDate(scheduledAt.getDate() + 4); // Fri → Tue\n  if (day === 6) scheduledAt.setDate(scheduledAt.getDate() + 3); // Sat → Tue\n  scheduledAt.setHours(10, 30, 0, 0);\n\n  return {\n    step: index + 1,\n    delay_days: step.delay_days,\n    channel: step.channel || outreach.channel,\n    subject: step.subject,\n    body: step.body,\n    scheduled_at: scheduledAt.toISOString(),\n    lead_id: item.lead_id,\n    contact_email: item.contact_email,\n    ab_variant: item.ab_variant\n  };\n});\n\nreturn {\n  lead_id: item.lead_id,\n  practice_name: item.practice_name,\n  channel: item.channel,\n  ab_variant: item.ab_variant,\n  initial_outreach_sent: true,\n  initial_channel: item.channel,\n  initial_subject: outreach.subject,\n  follow_up_sequence: formattedSequence,\n  follow_up_count: formattedSequence.length,\n  outreach_complete_at: new Date().toISOString(),\n  score: item.score,\n  tier: item.tier\n};"
+      }
+    },
+    {
+      "id": "out-error-handler",
+      "name": "Error Handler — Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [3250, 520],
+      "parameters": {
+        "operation": "postMessage",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "swarm-errors",
+          "mode": "name"
+        },
+        "text": "Outreach Orchestrator Fehler",
+        "blocksUi": {
+          "blocksValues": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Outreach Orchestrator — Fehler*\n\n*Workflow:* 03-outreach-orchestrator\n*Fehler:* {{ $json.error.message }}\n*Node:* {{ $json.error.node?.name || 'Unbekannt' }}\n*Lead ID:* {{ $('Validate Lead Input').item?.json?.lead_id || 'Unbekannt' }}\n*Zeitstempel:* {{ $now.toISO() }}\n\nBitte manuell prüfen."
+              }
+            }
+          ]
+        },
+        "credentials": {
+          "slackApi": "{{SLACK_CRED}}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead Input": {
+      "main": [
+        [
+          {
+            "node": "Retrieve RAG Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve RAG Context": {
+      "main": [
+        [
+          {
+            "node": "Format RAG Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format RAG Context": {
+      "main": [
+        [
+          {
+            "node": "A/B Variant Split",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A/B Variant Split": {
+      "main": [
+        [
+          {
+            "node": "AI Agent — Pain-Focused (A)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent — Value-Focused (B)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet (Variant A)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent — Pain-Focused (A)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet (Variant B)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent — Value-Focused (B)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent — Pain-Focused (A)": {
+      "main": [
+        [
+          {
+            "node": "Merge Variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent — Value-Focused (B)": {
+      "main": [
+        [
+          {
+            "node": "Merge Variants",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Variants": {
+      "main": [
+        [
+          {
+            "node": "Parse Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Route by Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Channel": {
+      "main": [
+        [
+          {
+            "node": "Send Email via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Sales — LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email via Gmail": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach to lead_memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach to lead_memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Sales — LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach to lead_memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Outreach to lead_memory": {
+      "main": [
+        [
+          {
+            "node": "Wait 24h — Reply Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 24h — Reply Window": {
+      "main": [
+        [
+          {
+            "node": "Format Follow-Up Sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "pinData": {}
+}

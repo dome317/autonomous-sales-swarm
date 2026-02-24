@@ -1,0 +1,607 @@
+{
+  "name": "Sales Swarm — Supervisor",
+  "tags": ["sales-swarm", "supervisor", "orchestrator"],
+  "nodes": [
+    {
+      "id": "sup-sticky-setup",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {
+        "content": "## Sales Swarm — Supervisor Setup\n\n### Required Credentials\n1. **ANTHROPIC_CRED** — Anthropic API Key\n   - Create in n8n: Settings → Credentials → New → Anthropic API\n   - Key: `ANTHROPIC_API_KEY` from console.anthropic.com\n\n2. **SLACK_CRED** — Slack Bot Token\n   - Create in n8n: Settings → Credentials → New → Slack API\n   - Token: `xoxb-...` with `chat:write` scope\n   - Set `SLACK_ESCALATION_CHANNEL` in env (default: #swarm-alerts)\n\n### Webhook URL\n```\nPOST https://YOUR_N8N_HOST/webhook/swarm-lead-intake\nHeader: X-Sales Swarm-Auth: YOUR_HEADER_AUTH_SECRET\n```\n\n### Sub-Workflow IDs\nAfter importing all workflows, update the Execute Workflow nodes with actual workflow IDs:\n- `sup-exec-research` → workflow ID of 01-lead-intelligence\n- `sup-exec-qualify` → workflow ID of 02-qualification-scoring\n- `sup-exec-outreach` → workflow ID of 03-outreach-orchestrator\n\n### Slack Channel\nUpdate the `sup-slack-escalate` node with your escalation channel name.",
+        "height": 420,
+        "width": 380,
+        "color": 5
+      }
+    },
+    {
+      "id": "sup-sticky-arch",
+      "name": "Architecture Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, 460],
+      "parameters": {
+        "content": "## Routing Architecture\n\n```\nWebhook → Error Boundary → Supervisor Agent\n                                  ↓\n                           Parse Route JSON\n                                  ↓\n                           Switch (route)\n                 ┌──────────┬──────┴────┬──────────┐\n              research  qualify  outreach  nurture  escalate\n                 ↓          ↓       ↓        ↓         ↓\n              Wf-01      Wf-02   Wf-03    Set Node  Slack\n```\n\n### Route Values\n- `research` → 01-lead-intelligence (enrich lead)\n- `qualify` → 02-qualification-scoring (score + CRM)\n- `outreach` → 03-outreach-orchestrator (send messages)\n- `nurture` → Tag lead for drip sequence\n- `escalate` → Slack alert to sales team",
+        "height": 280,
+        "width": 380,
+        "color": 6
+      }
+    },
+    {
+      "id": "sup-webhook",
+      "name": "Lead Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "swarm-lead-intake",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "header-auth-cred",
+          "name": "Sales Swarm Webhook Header Auth"
+        }
+      },
+      "webhookId": "swarm-lead-intake"
+    },
+    {
+      "id": "sup-validate-input",
+      "name": "Validate Lead Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "parameters": {
+        "jsCode": "// Validate required fields and normalize lead payload\nconst body = $input.first().json.body || $input.first().json;\n\nconst required = ['lead_id', 'email', 'name'];\nconst missing = required.filter(f => !body[f]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Basic email format check\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!emailRegex.test(body.email)) {\n  throw new Error(`Invalid email format: ${body.email}`);\n}\n\n// Normalize with safe defaults\nconst lead = {\n  lead_id: String(body.lead_id).trim(),\n  email: String(body.email).trim().toLowerCase(),\n  name: String(body.name).trim(),\n  company: body.company || null,\n  website: body.website || null,\n  phone: body.phone || null,\n  source: body.source || 'unknown',\n  enrichment_status: body.enrichment_status || null,\n  score: body.score != null ? Number(body.score) : null,\n  tier: body.tier || null,\n  outreach_status: body.outreach_status || null,\n  notes: body.notes || null,\n  received_at: new Date().toISOString()\n};\n\nreturn { json: lead };"
+      }
+    },
+    {
+      "id": "sup-agent",
+      "name": "Supervisor Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "parameters": {
+        "options": {
+          "systemMessage": "Du bist der Supervisor des Sales Swarm Growth Swarms. Du steuerst den gesamten Lead-Lebenszyklus.\n\nDeine Aufgabe: Analysiere den eingehenden Lead und entscheide, welche Route als nächstes ausgeführt werden soll.\n\n## Routing-Logik\n\n1. **research** — Lead ist neu, noch nicht angereichert\n   - Bedingung: enrichment_status ist null oder 'pending'\n   - Fehlende Felder: website, company_type, team_size, current_software\n\n2. **qualify** — Lead ist angereichert, hat aber noch keinen Score\n   - Bedingung: enrichment_status == 'complete' AND (score ist null oder 0)\n\n3. **outreach** — Lead ist qualifiziert und warm/hot\n   - Bedingung: score >= 45 AND tier IN ('warm', 'hot') AND outreach_status ist null oder 'pending'\n\n4. **nurture** — Lead ist kalt\n   - Bedingung: tier == 'cold' OR score < 45\n\n5. **escalate** — Fehler oder menschliche Intervention nötig\n   - Bedingung: Pflichtfelder fehlen (email, name), Duplikat-Verdacht, oder explizites 'escalate' Flag\n\n## Wichtige Regeln\n- Entscheide NUR basierend auf vorhandenen Daten — erfinde keine Informationen\n- Bei fehlenden Pflichtfeldern (email, name): IMMER escalate\n- Maximale Durchlaufzeit: 48h von Eingang bis erstem Outreach\n- Dokumentiere jede Entscheidung im 'reasoning' Feld\n\n## Output-Format\n\nAntworte IMMER ausschließlich in diesem exakten JSON-Format (kein Markdown, kein Text darum herum):\n\n```json\n{\n  \"route\": \"research | qualify | outreach | nurture | escalate\",\n  \"reasoning\": \"Kurze Begründung der Routing-Entscheidung auf Deutsch\",\n  \"priority\": \"high | medium | low\",\n  \"next_check_hours\": 24\n}\n```"
+        },
+        "promptType": "define",
+        "text": "Analysiere diesen Lead und gib deine Routing-Entscheidung als JSON zurück:\n\n{{ JSON.stringify($json, null, 2) }}"
+      }
+    },
+    {
+      "id": "sup-llm",
+      "name": "Claude Sonnet 4",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [750, 520],
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "maxTokens": 512,
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "{{ANTHROPIC_CRED}}",
+          "name": "Anthropic — Sales Swarm"
+        }
+      }
+    },
+    {
+      "id": "sup-parse-route",
+      "name": "Parse Route Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300],
+      "parameters": {
+        "jsCode": "// Extract and validate the agent's JSON routing decision\nconst agentOutput = $input.first().json.output || $input.first().json.text || '';\n\nlet decision;\ntry {\n  // Strip markdown code fences if present\n  const cleaned = agentOutput\n    .replace(/```json\\n?/g, '')\n    .replace(/```\\n?/g, '')\n    .trim();\n\n  decision = JSON.parse(cleaned);\n} catch (e) {\n  // If parsing fails, escalate and log the raw output\n  return {\n    json: {\n      route: 'escalate',\n      reasoning: `Supervisor agent returned unparseable output: ${agentOutput.substring(0, 200)}`,\n      priority: 'high',\n      next_check_hours: 1,\n      parse_error: true\n    }\n  };\n}\n\nconst validRoutes = ['research', 'qualify', 'outreach', 'nurture', 'escalate'];\nconst validPriorities = ['high', 'medium', 'low'];\n\n// Sanitize fields with safe defaults\nconst route = validRoutes.includes(decision.route) ? decision.route : 'escalate';\nconst priority = validPriorities.includes(decision.priority) ? decision.priority : 'medium';\nconst next_check_hours = typeof decision.next_check_hours === 'number'\n  ? decision.next_check_hours\n  : 24;\n\nreturn {\n  json: {\n    route,\n    reasoning: decision.reasoning || 'No reasoning provided',\n    priority,\n    next_check_hours,\n    lead_id: $('Validate Lead Payload').first().json.lead_id,\n    email: $('Validate Lead Payload').first().json.email,\n    decided_at: new Date().toISOString()\n  }\n};"
+      }
+    },
+    {
+      "id": "sup-route-switch",
+      "name": "Route Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1250, 300],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "research",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "research"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "qualify",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "qualify"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "outreach",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "outreach"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "nurture",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "nurture"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "escalate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "escalate"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "sup-exec-research",
+      "name": "Execute: Lead Intelligence",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1500, 100],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_WF_01_ID",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "sup-exec-qualify",
+      "name": "Execute: Qualification Scoring",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1500, 220],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_WF_02_ID",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "sup-exec-outreach",
+      "name": "Execute: Outreach Orchestrator",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1500, 340],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_WF_03_ID",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "sup-set-nurture",
+      "name": "Mark as Nurture",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1500, 460],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "fields": {
+          "values": [
+            {
+              "name": "lead_id",
+              "type": "stringValue",
+              "value": "={{ $json.lead_id }}"
+            },
+            {
+              "name": "email",
+              "type": "stringValue",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "nurture_status",
+              "type": "stringValue",
+              "value": "enrolled"
+            },
+            {
+              "name": "nurture_enrolled_at",
+              "type": "stringValue",
+              "value": "={{ new Date().toISOString() }}"
+            },
+            {
+              "name": "route_decision",
+              "type": "stringValue",
+              "value": "nurture"
+            },
+            {
+              "name": "reasoning",
+              "type": "stringValue",
+              "value": "={{ $json.reasoning }}"
+            },
+            {
+              "name": "next_check_hours",
+              "type": "numberValue",
+              "value": "={{ $json.next_check_hours }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "sup-slack-escalate",
+      "name": "Slack: Escalation Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1500, 580],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#swarm-alerts",
+        "text": ":rotating_light: *Sales Swarm — Eskalation erforderlich*\n\n*Lead ID:* {{ $json.lead_id }}\n*E-Mail:* {{ $json.email }}\n*Priorität:* {{ $json.priority }}\n*Begründung:* {{ $json.reasoning }}\n*Zeitpunkt:* {{ $json.decided_at }}\n\n_Bitte manuell prüfen und im CRM aktualisieren._",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "{{SLACK_CRED}}",
+          "name": "Slack — Sales Swarm"
+        }
+      }
+    },
+    {
+      "id": "sup-webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1750, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, lead_id: $('Parse Route Decision').first().json.lead_id, route: $('Parse Route Decision').first().json.route, reasoning: $('Parse Route Decision').first().json.reasoning, decided_at: $('Parse Route Decision').first().json.decided_at }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "sup-error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [250, 620],
+      "parameters": {}
+    },
+    {
+      "id": "sup-error-format",
+      "name": "Format Error Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 620],
+      "parameters": {
+        "jsCode": "const error = $input.first().json;\n\nreturn {\n  json: {\n    workflow: 'Sales Swarm — Supervisor',\n    error_message: error.error?.message || 'Unknown error',\n    error_node: error.node?.name || 'Unknown node',\n    execution_id: error.execution?.id || 'N/A',\n    failed_at: new Date().toISOString(),\n    slack_text: `:fire: *Sales Swarm — Supervisor FEHLER*\\n\\n*Workflow:* Sales Swarm — Supervisor\\n*Node:* ${error.node?.name || 'Unbekannt'}\\n*Fehler:* ${error.error?.message || 'Unbekannt'}\\n*Execution ID:* ${error.execution?.id || 'N/A'}\\n*Zeitpunkt:* ${new Date().toISOString()}\\n\\n_Bitte Logs im n8n Dashboard prüfen._`\n  }\n};"
+      }
+    },
+    {
+      "id": "sup-error-slack",
+      "name": "Slack: Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [750, 620],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#swarm-alerts",
+        "text": "={{ $json.slack_text }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "{{SLACK_CRED}}",
+          "name": "Slack — Sales Swarm"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Lead Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead Payload": {
+      "main": [
+        [
+          {
+            "node": "Supervisor Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supervisor Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Route Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Route Decision": {
+      "main": [
+        [
+          {
+            "node": "Route Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Switch": {
+      "main": [
+        [
+          {
+            "node": "Execute: Lead Intelligence",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: Qualification Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: Outreach Orchestrator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as Nurture",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack: Escalation Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Lead Intelligence": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Qualification Scoring": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Outreach Orchestrator": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Nurture": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Escalation Alert": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet 4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Supervisor Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Slack: Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true
+  },
+  "staticData": null,
+  "pinData": {}
+}

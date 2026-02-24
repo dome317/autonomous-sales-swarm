@@ -1,0 +1,471 @@
+{
+  "name": "Sales Swarm — Analytics Reporter",
+  "tags": ["sales-swarm", "analytics", "reporting"],
+  "nodes": [
+    {
+      "id": "ar-sticky-setup",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [250, 80],
+      "parameters": {
+        "content": "## Analytics Reporter — Setup\n\nRequired credentials (set in n8n Credentials):\n- `{{HUBSPOT_CRED}}` — HubSpot API (OAuth2 or Private App Token)\n- `{{ANTHROPIC_CRED}}` — Anthropic API Key for Claude Sonnet\n- `{{SUPABASE_CRED}}` — Supabase Service Role Key (HTTP Header Auth)\n- `{{NOTION_CRED}}` — Notion Integration Token (HTTP Header Auth)\n- `{{SLACK_CRED}}` — Slack Bot OAuth Token\n\nEnvironment variables to set:\n- `SUPABASE_URL` — your Supabase project URL\n- `NOTION_DASHBOARD_PAGE_ID` — target Notion page ID\n- `SLACK_CHANNEL_ID` — #swarm-growth channel ID\n\nSchedule: Daily at 08:00 Europe/Berlin + Monday at 09:00 (weekly).",
+        "height": 280,
+        "width": 480
+      }
+    },
+    {
+      "id": "ar-schedule-trigger",
+      "name": "Daily & Weekly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 420],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        },
+        "timezone": "Europe/Berlin"
+      }
+    },
+    {
+      "id": "ar-report-type",
+      "name": "Determine Report Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 420],
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst dayOfWeek = now.getDay(); // 0=Sunday, 1=Monday\nconst hour = now.getHours();\n\n// Monday at 09:00 = weekly report; otherwise daily at 08:00\nconst isWeekly = dayOfWeek === 1 && hour === 9;\n\nreturn {\n  json: {\n    reportType: isWeekly ? 'weekly' : 'daily',\n    triggeredAt: now.toISOString(),\n    date: now.toISOString().split('T')[0],\n    timezone: 'Europe/Berlin'\n  }\n};"
+      }
+    },
+    {
+      "id": "ar-hs-pipeline-stats",
+      "name": "hs-pipeline-stats",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "parameters": {
+        "resource": "deal",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "properties": [
+            "dealstage",
+            "amount",
+            "closedate",
+            "createdate",
+            "hs_deal_stage_probability"
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "{{HUBSPOT_CRED}}",
+          "name": "HubSpot API"
+        }
+      }
+    },
+    {
+      "id": "ar-hs-aggregate",
+      "name": "Aggregate HubSpot Deals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300],
+      "parameters": {
+        "jsCode": "// Aggregate all HubSpot deal items into pipeline stats\nconst items = $input.all();\n\nlet total = 0;\nlet qualified = 0;\nlet outreach = 0;\nlet meetings = 0;\nlet won = 0;\n\nfor (const item of items) {\n  const stage = (item.json.dealstage || '').toLowerCase();\n  total++;\n\n  // Map deal stages to funnel steps — adjust stage IDs to match HubSpot pipeline\n  if (stage.includes('qualified') || stage === 'qualifiedtobuy') {\n    qualified++;\n  }\n  if (stage.includes('outreach') || stage.includes('contact') || stage === 'presentationscheduled') {\n    outreach++;\n  }\n  if (stage.includes('meeting') || stage === 'decisionmakerboughtin') {\n    meetings++;\n  }\n  if (stage === 'closedwon') {\n    won++;\n  }\n}\n\nreturn {\n  json: {\n    total,\n    qualified,\n    outreach,\n    meetings,\n    won\n  }\n};"
+      }
+    },
+    {
+      "id": "ar-supabase-stats",
+      "name": "ar-supabase-stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [750, 540],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_swarm_stats",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $credentials.httpHeaderAuth.value }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{SUPABASE_CRED}}",
+          "name": "Supabase Service Role"
+        }
+      }
+    },
+    {
+      "id": "ar-aggregate-metrics",
+      "name": "Aggregate All Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 420],
+      "parameters": {
+        "jsCode": "const hubspot = $('ar-hs-aggregate').first().json;\nconst supabase = $('ar-supabase-stats').first().json;\nconst meta = $('ar-report-type').first().json;\n\nconst report = {\n  date: new Date().toISOString().split('T')[0],\n  reportType: meta.reportType || 'daily',\n  pipeline: {\n    total_leads: hubspot.total || 0,\n    qualified: hubspot.qualified || 0,\n    outreach_sent: hubspot.outreach || 0,\n    meetings_booked: hubspot.meetings || 0,\n    closed_won: hubspot.won || 0,\n    conversion_rate: hubspot.total ? ((hubspot.won / hubspot.total) * 100).toFixed(1) + '%' : '0%'\n  },\n  swarm: {\n    learnings_count: supabase.learnings_count || 0,\n    leads_enriched: supabase.leads_enriched || 0,\n    avg_score: supabase.avg_score || 0\n  }\n};\n\nreturn { json: report };"
+      }
+    },
+    {
+      "id": "ar-ai-summary-agent",
+      "name": "AI Summary Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [1500, 420],
+      "parameters": {
+        "text": "=Hier sind die aktuellen Performance-Daten des Sales Swarm Systems für den {{ $json.date }} ({{ $json.reportType === 'weekly' ? 'Wochenbericht' : 'Tagesbericht' }}):\n\nPipeline-Daten:\n- Gesamte Leads: {{ $json.pipeline.total_leads }}\n- Qualifizierte Leads: {{ $json.pipeline.qualified }}\n- Outreach versendet: {{ $json.pipeline.outreach_sent }}\n- Meetings gebucht: {{ $json.pipeline.meetings_booked }}\n- Abschlüsse (Closed Won): {{ $json.pipeline.closed_won }}\n- Gesamte Konversionsrate: {{ $json.pipeline.conversion_rate }}\n\nSwarm-Statistiken:\n- Gespeicherte Learnings: {{ $json.swarm.learnings_count }}\n- Angereicherte Leads: {{ $json.swarm.leads_enriched }}\n- Durchschnittlicher Lead-Score: {{ $json.swarm.avg_score }}\n\nBitte erstelle einen strukturierten {{ $json.reportType === 'weekly' ? 'Wochenbericht' : 'Tagesbericht' }} auf Deutsch.",
+        "options": {
+          "systemMessage": "Du bist der Analytics-Experte des Sales Swarm Systems, einem autonomen KI-Vertriebssystem für B2B-Unternehmen.\n\nDeine Aufgabe ist es, tägliche und wöchentliche Performance-Berichte zu erstellen, die klar, präzise und handlungsorientiert sind.\n\n<richtlinien>\n- Berichte immer auf Deutsch (professionell, aber verständlich)\n- Nutze Du-Form für interne Kommunikation\n- Strukturiere Berichte mit klaren Abschnitten und Emojis für schnellen Überblick\n- Hebe Trends hervor: Was hat sich verbessert? Was braucht Aufmerksamkeit?\n- Nenne konkrete Handlungsempfehlungen (max. 3 pro Bericht)\n- Vermeide Fachjargon — klare, direkte Sprache\n- Kontext: Sales Swarm ist ein B2B-SaaS für Proposal-Follow-ups, Termin-Reminders und digitale Onboarding-Formular\n</richtlinien>\n\n<berichtsstruktur>\nTagesbericht:\n1. Zusammenfassung (2-3 Sätze)\n2. Pipeline-Performance\n3. Swarm-Aktivität\n4. Highlight des Tages\n5. Handlungsempfehlungen\n\nWochenbericht:\n1. Executive Summary\n2. Pipeline-Performance (mit Wochentrend)\n3. Swarm-Lernfortschritt\n4. Top-Wins der Woche\n5. Verbesserungspotenziale\n6. Prioritäten für die kommende Woche\n</berichtsstruktur>\n\n<ausgabeformat>\nStrukturierter Markdown-Text, geeignet für Slack-Posts (verwende *fett* statt **fett** für Slack-Kompatibilität).\n</ausgabeformat>"
+        }
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "{{ANTHROPIC_CRED}}",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "id": "ar-claude-model",
+      "name": "Claude Sonnet 4",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [1500, 620],
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "maxTokens": 2048,
+          "temperature": 0.3
+        }
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "{{ANTHROPIC_CRED}}",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "id": "ar-prepare-outputs",
+      "name": "Prepare Notion & Slack Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 420],
+      "parameters": {
+        "jsCode": "const metrics = $('ar-aggregate-metrics').first().json;\nconst agentOutput = $('ar-ai-summary-agent').first().json;\n\n// Extract the generated text from agent output\nconst summaryText = agentOutput.output || agentOutput.text || JSON.stringify(agentOutput);\n\nconst reportTitle = metrics.reportType === 'weekly'\n  ? `Sales Swarm Wochenbericht — ${metrics.date}`\n  : `Sales Swarm Tagesbericht — ${metrics.date}`;\n\n// Notion block structure for the dashboard update\nconst notionBlocks = [\n  {\n    object: 'block',\n    type: 'heading_2',\n    heading_2: {\n      rich_text: [{ type: 'text', text: { content: reportTitle } }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'paragraph',\n    paragraph: {\n      rich_text: [{\n        type: 'text',\n        text: {\n          content: `Leads gesamt: ${metrics.pipeline.total_leads} | Qualifiziert: ${metrics.pipeline.qualified} | Meetings: ${metrics.pipeline.meetings_booked} | Abschlüsse: ${metrics.pipeline.closed_won} | Konversion: ${metrics.pipeline.conversion_rate}`\n        }\n      }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'paragraph',\n    paragraph: {\n      rich_text: [{\n        type: 'text',\n        text: { content: summaryText }\n      }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'divider',\n    divider: {}\n  }\n];\n\n// Slack message (plain text with basic formatting)\nconst slackText = [\n  `*${reportTitle}*`,\n  '',\n  `*Pipeline:* ${metrics.pipeline.total_leads} Leads | ${metrics.pipeline.qualified} qualifiziert | ${metrics.pipeline.meetings_booked} Meetings | ${metrics.pipeline.closed_won} Abschlüsse (${metrics.pipeline.conversion_rate})`,\n  `*Swarm:* ${metrics.swarm.learnings_count} Learnings | ${metrics.swarm.leads_enriched} angereichert | Ø Score: ${metrics.swarm.avg_score}`,\n  '',\n  summaryText\n].join('\\n');\n\nreturn {\n  json: {\n    reportTitle,\n    summaryText,\n    notionBlocks,\n    slackText,\n    metrics\n  }\n};"
+      }
+    },
+    {
+      "id": "ar-notion-update",
+      "name": "Update Notion Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/blocks/{{ $env.NOTION_DASHBOARD_PAGE_ID }}/children",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $credentials.httpHeaderAuth.value }}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ children: $json.notionBlocks }) }}"
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{NOTION_CRED}}",
+          "name": "Notion Integration"
+        }
+      }
+    },
+    {
+      "id": "ar-slack-post",
+      "name": "Post to Slack #swarm-growth",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2000, 540],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_CHANNEL_ID }}",
+        "text": "={{ $('ar-prepare-outputs').first().json.slackText }}",
+        "otherOptions": {
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "{{SLACK_CRED}}",
+          "name": "Slack Bot"
+        }
+      }
+    },
+    {
+      "id": "ar-error-catch",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 720],
+      "parameters": {
+        "jsCode": "// Capture error context from any failing node\nconst errorData = {\n  workflow: 'Sales Swarm — Analytics Reporter',\n  timestamp: new Date().toISOString(),\n  error: $input.first().json.error || 'Unknown error',\n  node: $input.first().json.node || 'Unknown node'\n};\n\nconsole.error('Analytics Reporter error:', JSON.stringify(errorData));\n\nreturn { json: errorData };"
+      }
+    },
+    {
+      "id": "ar-slack-error-alert",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2250, 720],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_CHANNEL_ID }}",
+        "text": "=:rotating_light: *Analytics Reporter Fehler* :rotating_light:\n\nZeitpunkt: {{ $json.timestamp }}\nFehler: {{ $json.error }}\nNode: {{ $json.node }}\n\nBitte manuell prüfen.",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "{{SLACK_CRED}}",
+          "name": "Slack Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily & Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Determine Report Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Report Type": {
+      "main": [
+        [
+          {
+            "node": "hs-pipeline-stats",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ar-supabase-stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "hs-pipeline-stats": {
+      "main": [
+        [
+          {
+            "node": "Aggregate HubSpot Deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate HubSpot Deals": {
+      "main": [
+        [
+          {
+            "node": "Aggregate All Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ar-supabase-stats": {
+      "main": [
+        [
+          {
+            "node": "Aggregate All Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate All Metrics": {
+      "main": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet 4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Summary Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Notion & Slack Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Notion & Slack Payload": {
+      "main": [
+        [
+          {
+            "node": "Update Notion Dashboard",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to Slack #swarm-growth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Notion Dashboard": {
+      "error": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack #swarm-growth": {
+      "error": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Slack Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "timezone": "Europe/Berlin"
+  },
+  "staticData": null,
+  "pinData": {}
+}

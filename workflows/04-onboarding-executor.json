@@ -1,0 +1,615 @@
+{
+  "name": "Sales Swarm — Onboarding Executor",
+  "tags": ["sales-swarm", "onboarding", "post-sale"],
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "onb-sticky-setup",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [250, 80],
+      "parameters": {
+        "content": "## Onboarding Executor — Setup\n\n**Credentials required:**\n- `{{HUBSPOT_CRED}}` — HubSpot API (OAuth2 or API Key)\n- `{{ANTHROPIC_CRED}}` — Anthropic API Key (Claude Sonnet 4)\n- `{{GOOGLE_CALENDAR_CRED}}` — Google Calendar OAuth2\n- `{{NOTION_CRED}}` — Notion Internal Integration Token\n- `{{GMAIL_CRED}}` — Gmail OAuth2\n- `{{SLACK_CRED}}` — Slack Bot Token\n\n**Trigger:** HubSpot deal moves to stage `closedwon`.\n\n**DSGVO:** PII is masked before Notion/Slack storage. Raw contact data stays in n8n execution only.",
+        "height": 300,
+        "width": 420,
+        "color": 5
+      }
+    },
+    {
+      "id": "onb-hubspot-trigger",
+      "name": "HubSpot — Deal Closed Won",
+      "type": "n8n-nodes-base.hubspotTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "eventsUi": {
+          "eventValues": [
+            {
+              "name": "deal.propertyChange",
+              "propertyName": "dealstage"
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "credentials": {
+        "hubspotDeveloperApi": {
+          "name": "{{HUBSPOT_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-filter-closedwon",
+      "name": "Filter — Only Closed Won",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "filter-closedwon-dealstage",
+              "leftValue": "={{ $json.propertyValue }}",
+              "rightValue": "closedwon",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "onb-get-deal",
+      "name": "HubSpot — Get Deal Details",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "parameters": {
+        "resource": "deal",
+        "operation": "get",
+        "dealId": "={{ $json.objectId }}",
+        "additionalFields": {
+          "properties": [
+            "dealname",
+            "amount",
+            "dealstage",
+            "closedate",
+            "pipeline",
+            "hubspot_owner_id",
+            "description",
+            "hs_deal_stage_probability"
+          ]
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "name": "{{HUBSPOT_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-get-contact",
+      "name": "HubSpot — Get Associated Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [1000, 300],
+      "parameters": {
+        "resource": "contact",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 1,
+        "additionalFields": {
+          "filterGroups": {
+            "filterGroupsValues": [
+              {
+                "filters": {
+                  "filtersValues": [
+                    {
+                      "propertyName": "associatedDealId",
+                      "operator": "EQ",
+                      "value": "={{ $('HubSpot — Get Deal Details').item.json.id }}"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "properties": [
+            "firstname",
+            "lastname",
+            "email",
+            "phone",
+            "company",
+            "jobtitle",
+            "city",
+            "hs_lead_status",
+            "company_type",
+            "company_size",
+            "crm_system",
+            "pain_points",
+            "website"
+          ]
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "name": "{{HUBSPOT_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-merge-data",
+      "name": "Code — Merge Deal and Contact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "parameters": {
+        "jsCode": "// Merge deal and contact into a unified onboarding profile\nconst deal = $('HubSpot — Get Deal Details').item.json;\nconst contact = $('HubSpot — Get Associated Contact').item.json;\n\nconst props = contact.properties || contact;\nconst dealProps = deal.properties || deal;\n\nconst profile = {\n  deal_id: deal.id,\n  deal_name: dealProps.dealname || 'Unbenannter Deal',\n  deal_amount: dealProps.amount ? parseFloat(dealProps.amount) : 0,\n  close_date: dealProps.closedate || new Date().toISOString(),\n  owner_id: dealProps.hubspot_owner_id || null,\n\n  contact_id: contact.id,\n  firstname: props.firstname || '',\n  lastname: props.lastname || '',\n  email: props.email || '',\n  phone: props.phone || '',\n  company: props.company || '',\n  jobtitle: props.jobtitle || '',\n  city: props.city || '',\n\n  company_type: props.company_type || 'Standardkunde',\n  company_size: props.company_size || 'mittel',\n  crm_system: props.crm_system || 'unbekannt',\n  pain_points: props.pain_points || '',\n  website: props.website || '',\n\n  onboarding_date: new Date().toISOString(),\n  full_name: `${props.firstname || ''} ${props.lastname || ''}`.trim()\n};\n\nreturn { json: profile };"
+      }
+    },
+    {
+      "id": "onb-ai-agent",
+      "name": "AI Agent — Onboarding Content Generator",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [1500, 300],
+      "parameters": {
+        "options": {
+          "systemMessage": "<role>\nDu bist der Sales Swarm Onboarding-Spezialist. Du erstellst hochpersonalisierte Onboarding-Inhalte für neu gewonnene B2B-Unternehmen, die Sales Swarm als Business-Software einsetzen werden.\n</role>\n\n<kontext>\nSales Swarm ist eine B2B-SaaS-Lösung, die Unternehmen bei Proposal-Nachverfolgung, Terminbestätigungen, digitaler Onboarding-Formular und Kundenkommunikation unterstützt.\n</kontext>\n\n<aufgabe>\nAnalysiere das Unternehmensprofil und erstelle alle Onboarding-Inhalte in strukturiertem JSON. Passe JEDEN Text individuell an die Unternehmen an — keine Generik.\n</aufgabe>\n\n<ausgabe_format>\nGib ausschließlich valides JSON zurück mit diesen Feldern:\n\n```json\n{\n  \"welcome_email\": {\n    \"subject\": \"...\",\n    \"body_html\": \"...\"\n  },\n  \"calendar_event\": {\n    \"title\": \"...\",\n    \"description\": \"...\",\n    \"duration_minutes\": 45,\n    \"agenda\": [\"...\", \"...\"]\n  },\n  \"notion_page\": {\n    \"title\": \"...\",\n    \"sections\": {\n      \"company_overview\": \"...\",\n      \"setup_steps\": [\"...\", \"...\"],\n      \"crm_integration_notes\": \"...\",\n      \"erste_30_tage\": \"...\",\n      \"ansprechpartner\": \"...\"\n    }\n  },\n  \"task_list\": [\n    {\"title\": \"...\", \"due_days\": 7, \"priority\": \"HIGH\"},\n    {\"title\": \"...\", \"due_days\": 30, \"priority\": \"MEDIUM\"}\n  ],\n  \"slack_summary\": \"...\"\n}\n```\n</ausgabe_format>\n\n<stil_richtlinien>\n- Sprache: Deutsch, Du-Form, professionell aber herzlich\n- B2B-Expertise zeigen: Proposal, Follow-up, Onboarding-Formular, Office-Manager korrekt verwenden\n- Unternehmensgröße berücksichtigen: Solo vs. Gemeinschaft vs. MVZ\n- CRM-System erwähnen, falls bekannt (z.B. Salesforce, HubSpot, Pipedrive)\n- Pain Points aus der Qualifizierung adressieren\n- Onboarding-E-Mail: max. 300 Wörter, konkret, mit nächsten Schritten\n</stil_richtlinien>\n\n<qualitaets_check>\nVor der Ausgabe prüfen:\n- Ist der Unternehmenname korrekt eingesetzt?\n- Sind die Pain Points aus dem Verkaufsprozess adressiert?\n- Ist der Kalender-Titel professionell und eindeutig?\n- Enthält die Notion-Seite alle Schritte für den ersten Tag?\n</qualitaets_check>"
+        },
+        "text": "=Erstelle vollständige Onboarding-Inhalte für folgende Unternehmen:\n\n**Unternehmen:** {{ $json.company }} ({{ $json.company_type }})\n**Kontakt:** {{ $json.full_name }} ({{ $json.jobtitle }})\n**Stadt:** {{ $json.city }}\n**Unternehmensgröße:** {{ $json.company_size }}\n**CRM-System:** {{ $json.crm_system }}\n**Pain Points:** {{ $json.pain_points }}\n**Deal-Wert:** {{ $json.deal_amount }} EUR\n**Abschlussdatum:** {{ $json.close_date }}\n**Website:** {{ $json.website }}\n\nErstelle alle Onboarding-Inhalte auf Deutsch, individuell auf diese Unternehmen zugeschnitten."
+      },
+      "credentials": {
+        "anthropicApi": {
+          "name": "{{ANTHROPIC_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-claude-lm",
+      "name": "Claude Sonnet 4",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1500, 520],
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 4096
+        }
+      },
+      "credentials": {
+        "anthropicApi": {
+          "name": "{{ANTHROPIC_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-parse-agent-output",
+      "name": "Code — Parse Agent JSON Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 300],
+      "parameters": {
+        "jsCode": "// Extract and parse the JSON from the AI agent's text output\nconst agentOutput = $input.first().json.output || $input.first().json.text || '';\n\nlet parsed;\ntry {\n  // Strip markdown code fences if present\n  const cleaned = agentOutput\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/i, '')\n    .trim();\n  parsed = JSON.parse(cleaned);\n} catch (err) {\n  // Attempt to extract JSON block from mixed content\n  const jsonMatch = agentOutput.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error(`AI Agent returned non-parseable output: ${agentOutput.slice(0, 200)}`);\n  }\n}\n\n// Validate required keys\nconst required = ['welcome_email', 'calendar_event', 'notion_page', 'task_list', 'slack_summary'];\nfor (const key of required) {\n  if (!parsed[key]) {\n    throw new Error(`Missing required key in agent output: ${key}`);\n  }\n}\n\n// Merge with upstream profile data\nconst profile = $('Code — Merge Deal and Contact').item.json;\n\nreturn {\n  json: {\n    ...profile,\n    onboarding_content: parsed\n  }\n};"
+      }
+    },
+    {
+      "id": "onb-pii-check",
+      "name": "Code — DSGVO PII Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst masked = {\n  ...data,\n  phone: data.phone ? data.phone.slice(0, -4).replace(/./g, '*') + data.phone.slice(-4) : null,\n  email_display: data.email ? data.email.replace(/(.{2})(.*)(@.*)/, '$1***$3') : null\n};\nreturn { json: masked };"
+      }
+    },
+    {
+      "id": "onb-try-start",
+      "name": "Error Boundary — Try Start",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2250, 300],
+      "parameters": {}
+    },
+    {
+      "id": "onb-google-calendar",
+      "name": "Google Calendar — Create Training Invite",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [2500, 160],
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendarId": "primary",
+        "start": "={{ $now.plus({ days: 3 }).toISO() }}",
+        "end": "={{ $now.plus({ days: 3, minutes: 45 }).toISO() }}",
+        "additionalFields": {
+          "summary": "={{ $json.onboarding_content.calendar_event.title }}",
+          "description": "={{ $json.onboarding_content.calendar_event.description }}",
+          "attendees": "={{ $json.email }}",
+          "sendUpdates": "all",
+          "conferenceDataVersion": 1
+        }
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "name": "{{GOOGLE_CALENDAR_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-notion-page",
+      "name": "HTTP Request — Create Notion Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 320],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "headers": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": {
+          "mode": "json",
+          "jsonOutput": "={\n  \"parent\": { \"database_id\": \"{{NOTION_ONBOARDING_DB_ID}}\" },\n  \"properties\": {\n    \"Name\": {\n      \"title\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.title) }} } }]\n    },\n    \"Unternehmen\": {\n      \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.company) }} } }]\n    },\n    \"Status\": {\n      \"select\": { \"name\": \"Onboarding Gestartet\" }\n    },\n    \"Deal ID\": {\n      \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.deal_id) }} } }]\n    },\n    \"Onboarding Datum\": {\n      \"date\": { \"start\": {{ JSON.stringify($json.onboarding_date) }} }\n    }\n  },\n  \"children\": [\n    {\n      \"object\": \"block\",\n      \"type\": \"heading_2\",\n      \"heading_2\": {\n        \"rich_text\": [{ \"text\": { \"content\": \"Unternehmensübersicht\" } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"paragraph\",\n      \"paragraph\": {\n        \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.sections.company_overview) }} } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"heading_2\",\n      \"heading_2\": {\n        \"rich_text\": [{ \"text\": { \"content\": \"Setup-Schritte\" } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"paragraph\",\n      \"paragraph\": {\n        \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.sections.setup_steps.join('\\n')) }} } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"heading_2\",\n      \"heading_2\": {\n        \"rich_text\": [{ \"text\": { \"content\": \"Erste 30 Tage\" } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"paragraph\",\n      \"paragraph\": {\n        \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.sections.erste_30_tage) }} } }]\n      }\n    }\n  ]\n}"
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "{{NOTION_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-gmail-welcome",
+      "name": "Gmail — Send Welcome Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [2500, 480],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "toList": "={{ $('Code — DSGVO PII Check').item.json.email }}",
+        "subject": "={{ $json.onboarding_content.welcome_email.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.onboarding_content.welcome_email.body_html }}",
+        "options": {
+          "replyTo": "onboarding@example.com",
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "{{GMAIL_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-hubspot-task-7d",
+      "name": "HubSpot — Task 7-Day Check-in",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [2750, 200],
+      "parameters": {
+        "resource": "task",
+        "operation": "create",
+        "body": {
+          "engagement": {
+            "active": true,
+            "type": "TASK",
+            "timestamp": "={{ $now.plus({ days: 7 }).toMillis() }}"
+          },
+          "associations": {
+            "contactIds": ["={{ $('Code — DSGVO PII Check').item.json.contact_id }}"],
+            "dealIds": ["={{ $('Code — DSGVO PII Check').item.json.deal_id }}"]
+          },
+          "metadata": {
+            "body": "7-Tage Check-in: Wie läuft das Onboarding bei {{ $('Code — DSGVO PII Check').item.json.company }}? Fragen zur Einrichtung? Proposal-Workflow funktioniert?",
+            "subject": "7-Tage Check-in — {{ $('Code — DSGVO PII Check').item.json.company }}",
+            "status": "NOT_STARTED",
+            "forObjectType": "CONTACT"
+          }
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "name": "{{HUBSPOT_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-hubspot-task-30d",
+      "name": "HubSpot — Task 30-Day Review",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [2750, 380],
+      "parameters": {
+        "resource": "task",
+        "operation": "create",
+        "body": {
+          "engagement": {
+            "active": true,
+            "type": "TASK",
+            "timestamp": "={{ $now.plus({ days: 30 }).toMillis() }}"
+          },
+          "associations": {
+            "contactIds": ["={{ $('Code — DSGVO PII Check').item.json.contact_id }}"],
+            "dealIds": ["={{ $('Code — DSGVO PII Check').item.json.deal_id }}"]
+          },
+          "metadata": {
+            "body": "30-Tage Business Review mit {{ $('Code — DSGVO PII Check').item.json.company }}. Follow-up-Quote vor/nach Sales Swarm, Proposal-Rücklaufquote, Office-Manager-Feedback, Upgrade-Potenzial prüfen.",
+            "subject": "30-Tage Review — {{ $('Code — DSGVO PII Check').item.json.company }}",
+            "status": "NOT_STARTED",
+            "forObjectType": "CONTACT"
+          }
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "name": "{{HUBSPOT_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-slack-notify",
+      "name": "Slack — Notify #swarm-onboarding",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [3000, 300],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#swarm-onboarding",
+        "text": "=*Neues Onboarding gestartet!*\n\n*Unternehmen:* {{ $('Code — DSGVO PII Check').item.json.company }}\n*Kontakt:* {{ $('Code — DSGVO PII Check').item.json.full_name }} ({{ $('Code — DSGVO PII Check').item.json.email_display }})\n*Stadt:* {{ $('Code — DSGVO PII Check').item.json.city }}\n*Unternehmenstyp:* {{ $('Code — DSGVO PII Check').item.json.company_type }}\n*Deal-Wert:* {{ $('Code — DSGVO PII Check').item.json.deal_amount }} EUR\n\n*Onboarding-Zusammenfassung:*\n{{ $('Code — DSGVO PII Check').item.json.onboarding_content.slack_summary }}\n\n*Automatisch ausgeführt:*\n- Willkommens-E-Mail versendet\n- Google Calendar Trainingstermin erstellt (45 Min.)\n- Notion Onboarding-Seite angelegt\n- 7-Tage Check-in Task erstellt\n- 30-Tage Review Task erstellt",
+        "otherOptions": {
+          "unfurl_links": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "name": "{{SLACK_CRED}}"
+        }
+      }
+    },
+    {
+      "id": "onb-error-catch",
+      "name": "Error Handler — Catch",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [2500, 700],
+      "parameters": {}
+    },
+    {
+      "id": "onb-slack-error",
+      "name": "Slack — Alert Error",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2750, 700],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#swarm-alerts",
+        "text": "=*FEHLER im Onboarding Executor*\n\n*Workflow:* {{ $json.workflow.name }}\n*Node:* {{ $json.execution.error.node.name }}\n*Fehler:* {{ $json.execution.error.message }}\n*Deal ID:* {{ $json.execution.error.context.itemIndex || 'unbekannt' }}\n*Zeitstempel:* {{ $now.toISO() }}\n\nBitte manuell prüfen und Onboarding-Schritte nachholen.",
+        "otherOptions": {
+          "unfurl_links": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "name": "{{SLACK_CRED}}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "HubSpot — Deal Closed Won": {
+      "main": [
+        [
+          {
+            "node": "Filter — Only Closed Won",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter — Only Closed Won": {
+      "main": [
+        [
+          {
+            "node": "HubSpot — Get Deal Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot — Get Deal Details": {
+      "main": [
+        [
+          {
+            "node": "HubSpot — Get Associated Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot — Get Associated Contact": {
+      "main": [
+        [
+          {
+            "node": "Code — Merge Deal and Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Merge Deal and Contact": {
+      "main": [
+        [
+          {
+            "node": "AI Agent — Onboarding Content Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent — Onboarding Content Generator": {
+      "main": [
+        [
+          {
+            "node": "Code — Parse Agent JSON Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet 4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent — Onboarding Content Generator",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Parse Agent JSON Output": {
+      "main": [
+        [
+          {
+            "node": "Code — DSGVO PII Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — DSGVO PII Check": {
+      "main": [
+        [
+          {
+            "node": "Error Boundary — Try Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Boundary — Try Start": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar — Create Training Invite",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request — Create Notion Page",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail — Send Welcome Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar — Create Training Invite": {
+      "main": [
+        [
+          {
+            "node": "HubSpot — Task 7-Day Check-in",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request — Create Notion Page": {
+      "main": [
+        [
+          {
+            "node": "HubSpot — Task 30-Day Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot — Task 7-Day Check-in": {
+      "main": [
+        [
+          {
+            "node": "Slack — Notify #swarm-onboarding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot — Task 30-Day Review": {
+      "main": [
+        [
+          {
+            "node": "Slack — Notify #swarm-onboarding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail — Send Welcome Email": {
+      "main": [
+        [
+          {
+            "node": "Slack — Notify #swarm-onboarding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler — Catch": {
+      "main": [
+        [
+          {
+            "node": "Slack — Alert Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,435 @@
+{
+  "name": "Sales Swarm — Support Guardian",
+  "tags": ["sales-swarm", "support", "rag"],
+  "nodes": [
+    {
+      "id": "sg-sticky-setup",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [250, 80],
+      "parameters": {
+        "content": "## Support Guardian — Setup\n\n**Credentials required:**\n- `{{EMAIL_CRED}}` — IMAP credentials for support inbox (e.g. support@swarm.de)\n- `{{ANTHROPIC_CRED}}` — Anthropic API key for Claude Sonnet\n- `{{SUPABASE_CRED}}` — Supabase API key + project URL\n- `{{GMAIL_CRED}}` — Gmail OAuth2 for sending responses\n- `{{SLACK_CRED}}` — Slack Bot Token\n\n**Supabase:** Requires `documents` table with `match_documents` RPC function and `lead_memory` table (see `infrastructure/init-supabase.sql`).\n\n**Slack channels:** `#swarm-support-review` (confidence 0.65–0.84) and `#swarm-support-escalation` (confidence < 0.65).",
+        "height": 280,
+        "width": 520
+      }
+    },
+    {
+      "id": "sg-email-trigger",
+      "name": "Email Trigger — Support Inbox",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [250, 420],
+      "credentials": {
+        "imap": {
+          "id": "{{EMAIL_CRED}}",
+          "name": "{{EMAIL_CRED}}"
+        }
+      },
+      "parameters": {
+        "mailbox": "INBOX",
+        "action": "read",
+        "download": false,
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "forceReconnect": 60
+        }
+      }
+    },
+    {
+      "id": "sg-extract-email",
+      "name": "Extract Email Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 420],
+      "parameters": {
+        "jsCode": "const email = $input.first().json;\n\nconst sender = email.from || '';\nconst subject = email.subject || '(Kein Betreff)';\nconst body = email.text || email.html || '';\nconst messageId = email.messageId || `msg-${Date.now()}`;\nconst receivedAt = email.date || new Date().toISOString();\n\n// Extract plain name from sender: \"Max Müller <max@company.de>\" → \"Max Müller\"\nconst senderNameMatch = sender.match(/^(.+?)\\s*</);\nconst senderName = senderNameMatch ? senderNameMatch[1].trim() : sender.split('@')[0];\nconst senderEmail = (sender.match(/<(.+?)>/) || [])[1] || sender;\n\n// Strip HTML tags for clean body text\nconst cleanBody = body.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\n\n// Build the support query for RAG + Agent\nconst query = `Betreff: ${subject}\\n\\nNachricht:\\n${cleanBody}`;\n\nreturn {\n  json: {\n    messageId,\n    sender,\n    senderName,\n    senderEmail,\n    subject,\n    body: cleanBody,\n    query,\n    receivedAt\n  }\n};"
+      }
+    },
+    {
+      "id": "sg-vector-store",
+      "name": "Supabase Vector Store — Knowledge Retrieval",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1,
+      "position": [750, 420],
+      "credentials": {
+        "supabaseApi": {
+          "id": "{{SUPABASE_CRED}}",
+          "name": "{{SUPABASE_CRED}}"
+        }
+      },
+      "parameters": {
+        "mode": "retrieve",
+        "tableName": "documents",
+        "queryName": "match_documents",
+        "topK": 5,
+        "query": "={{ $json.query }}"
+      }
+    },
+    {
+      "id": "sg-agent",
+      "name": "Support Agent — Claude Sonnet",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [1000, 420],
+      "parameters": {
+        "text": "={{ $('Extract Email Fields').item.json.query }}\n\n---\n\n**RAG-Kontext aus Wissensdatenbank:**\n{{ $json.documents ? $json.documents.map((d, i) => `[Quelle ${i+1}]: ${d.pageContent}`).join('\\n\\n') : 'Keine Quellen gefunden.' }}",
+        "options": {
+          "systemMessage": "# Sales Swarm — Support Guardian Agent\n\nDu bist der Support-Spezialist. Du beantwortest Kundenanfragen automatisch mithilfe der RAG-Wissensdatenbank.\n\n## Deine Rolle\n\nDu erhältst Support-Anfragen per E-Mail oder Slack und beantwortest sie auf Deutsch. Du nutzt die Sales Swarm-Wissensdatenbank (RAG) für präzise Antworten. Bei niedrigem Confidence-Level eskalierst du an das Support-Team.\n\n## Antwort-Strategie\n\n<response_strategy>\n### Confidence-Stufen\n- **>= 0.85**: Auto-Send — Antwort wird direkt versendet\n- **0.65 - 0.84**: Review — Antwort wird im Slack-Channel zur Freigabe vorgelegt\n- **< 0.65**: Escalate — Weiterleitung an menschlichen Support-Mitarbeiter\n\n### Antwort-Qualität\n- Immer mit konkreter Lösung oder nächstem Schritt antworten\n- Keine generischen \"Wir kümmern uns darum\"-Antworten\n- Verlinke auf relevante Hilfe-Artikel oder Anleitungen\n- Maximal 3 Absätze — kurz und lösungsorientiert\n</response_strategy>\n\n## Kategorisierung\n\n<categories>\nOrdne jede Anfrage einer Kategorie zu:\n\n1. **setup** — Einrichtungsfragen (CRM-Integration, Konfiguration)\n2. **feature** — Funktionsfragen (Wie funktioniert X?)\n3. **bug** — Fehlerberichte (X funktioniert nicht)\n4. **billing** — Abrechnungsfragen → IMMER eskalieren\n5. **cancellation** — Kündigungsanfragen → IMMER eskalieren\n6. **feature_request** — Wünsche für neue Features\n7. **integration** — Drittanbieter-Integrationen\n8. **gdpr** — DSGVO-/Datenschutz-Anfragen → Review vor Antwort\n</categories>\n\n## Regeln\n\n- **billing** und **cancellation** IMMER an Menschen eskalieren (confidence = 0.0)\n- **gdpr**-Anfragen immer erst reviewen lassen (confidence max 0.70)\n- Antworte IMMER auf Deutsch, auch wenn die Anfrage auf Englisch kommt\n- Bei Bug-Reports: Frage nach Browser, CRM-Version und Screenshot\n- Maximal 2 Follow-up-Fragen bevor Eskalation\n\n## Output-Format\n\nAntworte AUSSCHLIESSLICH mit validem JSON:\n\n```json\n{\n  \"ticket_id\": \"TKT-YYYYMMDD-XXXX\",\n  \"category\": \"setup | feature | bug | billing | cancellation | feature_request | integration | gdpr\",\n  \"response_body\": \"string — vollständige E-Mail-Antwort auf Deutsch\",\n  \"confidence\": 0.0,\n  \"escalation_needed\": false,\n  \"escalation_reason\": \"string or null\",\n  \"rag_sources\": [\"string\"],\n  \"query_complexity\": \"simple | medium | complex\"\n}\n```"
+        }
+      }
+    },
+    {
+      "id": "sg-llm",
+      "name": "Claude Sonnet 4",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1000, 620],
+      "credentials": {
+        "anthropicApi": {
+          "id": "{{ANTHROPIC_CRED}}",
+          "name": "{{ANTHROPIC_CRED}}"
+        }
+      },
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 1500
+        }
+      }
+    },
+    {
+      "id": "sg-confidence-check",
+      "name": "Confidence Check — Determine Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 420],
+      "parameters": {
+        "jsCode": "const agentOutput = $input.first().json;\n\n// Parse JSON from agent output text\nlet result;\ntry {\n  const text = agentOutput.output || agentOutput.text || JSON.stringify(agentOutput);\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  result = jsonMatch ? JSON.parse(jsonMatch[0]) : agentOutput;\n} catch (e) {\n  result = {\n    ticket_id: `TKT-${Date.now()}`,\n    category: 'unknown',\n    response_body: 'Entschuldigung, es gab einen Fehler bei der Verarbeitung Ihrer Anfrage. Unser Team wird sich melden.',\n    confidence: 0,\n    escalation_needed: true,\n    escalation_reason: 'Agent parse error: ' + e.message,\n    rag_sources: [],\n    query_complexity: 'unknown'\n  };\n}\n\nconst confidence = result.confidence || 0;\n\n// Force escalation for billing/cancellation regardless of confidence\nconst forceEscalate = ['billing', 'cancellation'].includes(result.category);\n\n// Force review for gdpr\nconst forceReview = result.category === 'gdpr';\n\nlet action;\nif (forceEscalate) {\n  action = 'escalate';\n} else if (forceReview && confidence < 0.85) {\n  action = 'review';\n} else if (confidence >= 0.85) {\n  action = 'auto_send';\n} else if (confidence >= 0.65) {\n  action = 'review';\n} else {\n  action = 'escalate';\n}\n\n// Pull email context from earlier node\nconst emailData = $('Extract Email Fields').item.json;\n\nreturn {\n  json: {\n    ...result,\n    action,\n    senderEmail: emailData.senderEmail,\n    senderName: emailData.senderName,\n    subject: emailData.subject,\n    messageId: emailData.messageId,\n    receivedAt: emailData.receivedAt\n  }\n};"
+      }
+    },
+    {
+      "id": "sg-route-switch",
+      "name": "Route by Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1500, 420],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "auto-send-condition",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "auto_send",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "auto_send"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "review-condition",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "review"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "escalate-condition",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "escalate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "escalate"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "sg-gmail-send",
+      "name": "Gmail — Send Auto Response",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1750, 240],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "{{GMAIL_CRED}}",
+          "name": "{{GMAIL_CRED}}"
+        }
+      },
+      "parameters": {
+        "operation": "send",
+        "sendTo": "={{ $json.senderEmail }}",
+        "subject": "=Re: {{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.response_body }}",
+        "options": {
+          "replyTo": "support@swarm.de",
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "sg-slack-review",
+      "name": "Slack — Post to Review Channel",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1750, 420],
+      "credentials": {
+        "slackApi": {
+          "id": "{{SLACK_CRED}}",
+          "name": "{{SLACK_CRED}}"
+        }
+      },
+      "parameters": {
+        "operation": "post",
+        "channel": "#swarm-support-review",
+        "text": "=:eyes: *Support-Anfrage zur Freigabe*\n\n*Ticket:* {{ $json.ticket_id }}\n*Von:* {{ $json.senderName }} ({{ $json.senderEmail }})\n*Betreff:* {{ $json.subject }}\n*Kategorie:* {{ $json.category }}\n*Confidence:* {{ ($json.confidence * 100).toFixed(0) }}%\n*Komplexität:* {{ $json.query_complexity }}\n\n*Entwurf-Antwort:*\n```\n{{ $json.response_body }}\n```\n\n:white_check_mark: Zum Senden bitte im n8n-Workflow freigeben oder manuell weiterleiten.",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "sg-slack-escalate",
+      "name": "Slack — Post to Escalation Channel",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1750, 600],
+      "credentials": {
+        "slackApi": {
+          "id": "{{SLACK_CRED}}",
+          "name": "{{SLACK_CRED}}"
+        }
+      },
+      "parameters": {
+        "operation": "post",
+        "channel": "#swarm-support-escalation",
+        "text": "=:rotating_light: *Support-Eskalation erforderlich*\n\n*Ticket:* {{ $json.ticket_id }}\n*Von:* {{ $json.senderName }} ({{ $json.senderEmail }})\n*Betreff:* {{ $json.subject }}\n*Kategorie:* {{ $json.category }}\n*Confidence:* {{ ($json.confidence * 100).toFixed(0) }}%\n*Eskalationsgrund:* {{ $json.escalation_reason || 'Confidence zu niedrig für automatische Antwort' }}\n*Eingegangen:* {{ $json.receivedAt }}\n\n*Originale Anfrage:*\n```\nBetreff: {{ $json.subject }}\n```\n\n*KI-Antwortvorschlag:*\n```\n{{ $json.response_body }}\n```\n\n:point_up: Bitte manuell bearbeiten und antworten.",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "sg-log-interaction",
+      "name": "Supabase — Log Interaction",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2000, 420],
+      "credentials": {
+        "supabaseApi": {
+          "id": "{{SUPABASE_CRED}}",
+          "name": "{{SUPABASE_CRED}}"
+        }
+      },
+      "parameters": {
+        "operation": "insert",
+        "tableId": "lead_memory",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "lead_email",
+              "fieldValue": "={{ $json.senderEmail }}"
+            },
+            {
+              "fieldId": "memory_type",
+              "fieldValue": "interaction"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ JSON.stringify({ ticket_id: $json.ticket_id, subject: $json.subject, category: $json.category, action: $json.action, confidence: $json.confidence, escalation_needed: $json.escalation_needed, escalation_reason: $json.escalation_reason, rag_sources: $json.rag_sources, query_complexity: $json.query_complexity, response_preview: ($json.response_body || '').substring(0, 300) }) }}"
+            },
+            {
+              "fieldId": "source",
+              "fieldValue": "support_guardian"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Email Trigger — Support Inbox": {
+      "main": [
+        [
+          {
+            "node": "Extract Email Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Email Fields": {
+      "main": [
+        [
+          {
+            "node": "Supabase Vector Store — Knowledge Retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Store — Knowledge Retrieval": {
+      "main": [
+        [
+          {
+            "node": "Support Agent — Claude Sonnet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet 4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Support Agent — Claude Sonnet",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support Agent — Claude Sonnet": {
+      "main": [
+        [
+          {
+            "node": "Confidence Check — Determine Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence Check — Determine Action": {
+      "main": [
+        [
+          {
+            "node": "Route by Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Action": {
+      "main": [
+        [
+          {
+            "node": "Gmail — Send Auto Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack — Post to Review Channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack — Post to Escalation Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail — Send Auto Response": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Log Interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack — Post to Review Channel": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Log Interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack — Post to Escalation Channel": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Log Interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "pinData": {}
+}

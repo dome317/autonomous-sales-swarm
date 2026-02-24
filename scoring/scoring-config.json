@@ -1,0 +1,61 @@
+{
+  "weights": {
+    "practice_size": 0.25,
+    "pain_match": 0.30,
+    "digitalization_readiness": 0.20,
+    "region_fit": 0.15,
+    "source_quality": 0.10
+  },
+  "thresholds": {
+    "hot": 75,
+    "warm": 45,
+    "cold": 0
+  },
+  "criteria": {
+    "practice_size": {
+      "description": "Number of team members in the company",
+      "ranges": [
+        { "min": 1, "max": 1, "score": 30, "label": "Solo Business" },
+        { "min": 2, "max": 3, "score": 60, "label": "Small Team" },
+        { "min": 4, "max": 7, "score": 85, "label": "Mid-size Company" },
+        { "min": 8, "max": 999, "score": 100, "label": "Enterprise / Large Company" }
+      ]
+    },
+    "pain_match": {
+      "description": "How well identified pain points match the product's solution",
+      "ranges": [
+        { "min": 0, "max": 0, "score": 10, "label": "No identified pain" },
+        { "min": 1, "max": 1, "score": 40, "label": "General digitalization need" },
+        { "min": 2, "max": 2, "score": 70, "label": "Specific pain point" },
+        { "min": 3, "max": 3, "score": 100, "label": "Acute pain + active search" }
+      ]
+    },
+    "digitalization_readiness": {
+      "description": "Current level of digital maturity",
+      "ranges": [
+        { "min": 0, "max": 0, "score": 20, "label": "Outdated" },
+        { "min": 1, "max": 1, "score": 50, "label": "Average" },
+        { "min": 2, "max": 2, "score": 75, "label": "Partially digitized" },
+        { "min": 3, "max": 3, "score": 90, "label": "Fully digital" }
+      ]
+    },
+    "region_fit": {
+      "description": "Proximity to existing reference customers",
+      "ranges": [
+        { "min": 0, "max": 0, "score": 40, "label": "New region" },
+        { "min": 1, "max": 2, "score": 70, "label": "1-2 references" },
+        { "min": 3, "max": 5, "score": 90, "label": "Core market" },
+        { "min": 6, "max": 999, "score": 100, "label": "Case study city" }
+      ]
+    },
+    "source_quality": {
+      "description": "How the lead was acquired",
+      "values": {
+        "cold_outreach": 20,
+        "event": 50,
+        "website_form": 80,
+        "referral": 100
+      }
+    }
+  }
+}

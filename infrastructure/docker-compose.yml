@@ -1,0 +1,84 @@
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: swarm-n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - NODE_ENV=production
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=${TIMEZONE:-Europe/Berlin}
+      # Database (use postgres for production)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME:-n8n}
+      - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD:-n8n_secret}
+      # Queue mode (Redis)
+      - EXECUTIONS_MODE=${EXECUTIONS_MODE:-regular}
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      # AI / LLM credentials (injected via n8n credential UI)
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - swarm-net
+
+  postgres:
+    image: supabase/postgres:15.6.1.143
+    container_name: swarm-postgres
+    restart: unless-stopped
+    ports:
+      - "${SUPABASE_DB_PORT:-54322}:5432"
+    environment:
+      POSTGRES_USER: ${SUPABASE_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${SUPABASE_DB_PASSWORD:-postgres_secret}
+      POSTGRES_DB: ${SUPABASE_DB_NAME:-swarm}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-supabase.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SUPABASE_DB_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - swarm-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: swarm-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - swarm-net
+
+volumes:
+  n8n_data:
+  postgres_data:
+  redis_data:
+
+networks:
+  swarm-net:
+    driver: bridge
