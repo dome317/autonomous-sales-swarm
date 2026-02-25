@@ -1,6 +1,6 @@
 {
-  "name": "Sales Swarm — Analytics Reporter",
-  "tags": ["sales-swarm", "analytics", "reporting"],
+  "name": "Growth Swarm — Analytics Reporter",
+  "tags": ["growth-swarm", "analytics", "reporting"],
   "nodes": [
     {
       "id": "ar-sticky-setup",
@@ -25,7 +25,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 8 * * *"
+              "expression": "0 8 * * 2-5"
             },
             {
               "field": "cronExpression",
@@ -120,6 +120,7 @@
           }
         }
       },
+      "continueOnFail": true,
       "credentials": {
         "httpHeaderAuth": {
           "id": "{{SUPABASE_CRED}}",
@@ -134,7 +135,7 @@
       "typeVersion": 2,
       "position": [1250, 420],
       "parameters": {
-        "jsCode": "const hubspot = $('ar-hs-aggregate').first().json;\nconst supabase = $('ar-supabase-stats').first().json;\nconst meta = $('ar-report-type').first().json;\n\nconst report = {\n  date: new Date().toISOString().split('T')[0],\n  reportType: meta.reportType || 'daily',\n  pipeline: {\n    total_leads: hubspot.total || 0,\n    qualified: hubspot.qualified || 0,\n    outreach_sent: hubspot.outreach || 0,\n    meetings_booked: hubspot.meetings || 0,\n    closed_won: hubspot.won || 0,\n    conversion_rate: hubspot.total ? ((hubspot.won / hubspot.total) * 100).toFixed(1) + '%' : '0%'\n  },\n  swarm: {\n    learnings_count: supabase.learnings_count || 0,\n    leads_enriched: supabase.leads_enriched || 0,\n    avg_score: supabase.avg_score || 0\n  }\n};\n\nreturn { json: report };"
+        "jsCode": "const hubspot = $('Aggregate HubSpot Deals').first().json;\nconst supabase = $('ar-supabase-stats').first().json;\nconst meta = $('Determine Report Type').first().json;\n\nconst report = {\n  date: new Date().toISOString().split('T')[0],\n  reportType: meta.reportType || 'daily',\n  pipeline: {\n    total_leads: hubspot.total || 0,\n    qualified: hubspot.qualified || 0,\n    outreach_sent: hubspot.outreach || 0,\n    meetings_booked: hubspot.meetings || 0,\n    closed_won: hubspot.won || 0,\n    conversion_rate: hubspot.total ? ((hubspot.won / hubspot.total) * 100).toFixed(1) + '%' : '0%'\n  },\n  swarm: {\n    learnings_count: supabase.learnings_count || 0,\n    leads_enriched: supabase.leads_enriched || 0,\n    avg_score: supabase.avg_score || 0\n  }\n};\n\nreturn { json: report };"
       }
     },
     {
@@ -144,9 +145,9 @@
       "typeVersion": 2,
       "position": [1500, 420],
       "parameters": {
-        "text": "=Hier sind die aktuellen Performance-Daten des Sales Swarm Systems für den {{ $json.date }} ({{ $json.reportType === 'weekly' ? 'Wochenbericht' : 'Tagesbericht' }}):\n\nPipeline-Daten:\n- Gesamte Leads: {{ $json.pipeline.total_leads }}\n- Qualifizierte Leads: {{ $json.pipeline.qualified }}\n- Outreach versendet: {{ $json.pipeline.outreach_sent }}\n- Meetings gebucht: {{ $json.pipeline.meetings_booked }}\n- Abschlüsse (Closed Won): {{ $json.pipeline.closed_won }}\n- Gesamte Konversionsrate: {{ $json.pipeline.conversion_rate }}\n\nSwarm-Statistiken:\n- Gespeicherte Learnings: {{ $json.swarm.learnings_count }}\n- Angereicherte Leads: {{ $json.swarm.leads_enriched }}\n- Durchschnittlicher Lead-Score: {{ $json.swarm.avg_score }}\n\nBitte erstelle einen strukturierten {{ $json.reportType === 'weekly' ? 'Wochenbericht' : 'Tagesbericht' }} auf Deutsch.",
+        "text": "=Hier sind die aktuellen Performance-Daten des Growth Swarm Systems für den {{ $json.date }} ({{ $json.reportType === 'weekly' ? 'Wochenbericht' : 'Tagesbericht' }}):\n\nPipeline-Daten:\n- Gesamte Leads: {{ $json.pipeline.total_leads }}\n- Qualifizierte Leads: {{ $json.pipeline.qualified }}\n- Outreach versendet: {{ $json.pipeline.outreach_sent }}\n- Meetings gebucht: {{ $json.pipeline.meetings_booked }}\n- Abschlüsse (Closed Won): {{ $json.pipeline.closed_won }}\n- Gesamte Konversionsrate: {{ $json.pipeline.conversion_rate }}\n\nSwarm-Statistiken:\n- Gespeicherte Learnings: {{ $json.swarm.learnings_count }}\n- Angereicherte Leads: {{ $json.swarm.leads_enriched }}\n- Durchschnittlicher Lead-Score: {{ $json.swarm.avg_score }}\n\nBitte erstelle einen strukturierten {{ $json.reportType === 'weekly' ? 'Wochenbericht' : 'Tagesbericht' }} auf Deutsch.",
         "options": {
-          "systemMessage": "Du bist der Analytics-Experte des Sales Swarm Systems, einem autonomen KI-Vertriebssystem für B2B-Unternehmen.\n\nDeine Aufgabe ist es, tägliche und wöchentliche Performance-Berichte zu erstellen, die klar, präzise und handlungsorientiert sind.\n\n<richtlinien>\n- Berichte immer auf Deutsch (professionell, aber verständlich)\n- Nutze Du-Form für interne Kommunikation\n- Strukturiere Berichte mit klaren Abschnitten und Emojis für schnellen Überblick\n- Hebe Trends hervor: Was hat sich verbessert? Was braucht Aufmerksamkeit?\n- Nenne konkrete Handlungsempfehlungen (max. 3 pro Bericht)\n- Vermeide Fachjargon — klare, direkte Sprache\n- Kontext: Sales Swarm ist ein B2B-SaaS für Proposal-Follow-ups, Termin-Reminders und digitale Onboarding-Formular\n</richtlinien>\n\n<berichtsstruktur>\nTagesbericht:\n1. Zusammenfassung (2-3 Sätze)\n2. Pipeline-Performance\n3. Swarm-Aktivität\n4. Highlight des Tages\n5. Handlungsempfehlungen\n\nWochenbericht:\n1. Executive Summary\n2. Pipeline-Performance (mit Wochentrend)\n3. Swarm-Lernfortschritt\n4. Top-Wins der Woche\n5. Verbesserungspotenziale\n6. Prioritäten für die kommende Woche\n</berichtsstruktur>\n\n<ausgabeformat>\nStrukturierter Markdown-Text, geeignet für Slack-Posts (verwende *fett* statt **fett** für Slack-Kompatibilität).\n</ausgabeformat>"
+          "systemMessage": "Du bist der Analytics-Experte des Growth Swarm Systems, einem autonomen KI-Vertriebssystem für Unternehmen.\n\nDeine Aufgabe ist es, tägliche und wöchentliche Performance-Berichte zu erstellen, die klar, präzise und handlungsorientiert sind.\n\n<richtlinien>\n- Berichte immer auf Deutsch (professionell, aber verständlich)\n- Nutze Du-Form für interne Kommunikation\n- Strukturiere Berichte mit klaren Abschnitten und Emojis für schnellen Überblick\n- Hebe Trends hervor: Was hat sich verbessert? Was braucht Aufmerksamkeit?\n- Nenne konkrete Handlungsempfehlungen (max. 3 pro Bericht)\n- Vermeide Fachjargon — klare, direkte Sprache\n- Kontext: Growth Swarm ist ein B2B-SaaS für Lead-Follow-ups, Terminerinnerungen und digitales Onboarding\n</richtlinien>\n\n<berichtsstruktur>\nTagesbericht:\n1. Zusammenfassung (2-3 Sätze)\n2. Pipeline-Performance\n3. Swarm-Aktivität\n4. Highlight des Tages\n5. Handlungsempfehlungen\n\nWochenbericht:\n1. Executive Summary\n2. Pipeline-Performance (mit Wochentrend)\n3. Swarm-Lernfortschritt\n4. Top-Wins der Woche\n5. Verbesserungspotenziale\n6. Prioritäten für die kommende Woche\n</berichtsstruktur>\n\n<ausgabeformat>\nStrukturierter Markdown-Text, geeignet für Slack-Posts (verwende *fett* statt **fett** für Slack-Kompatibilität).\n</ausgabeformat>"
         }
       },
       "credentials": {
@@ -163,7 +164,11 @@
       "typeVersion": 1.3,
       "position": [1500, 620],
       "parameters": {
-        "model": "claude-sonnet-4-5",
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-4-5"
+        },
         "options": {
           "maxTokens": 2048,
           "temperature": 0.3
@@ -183,7 +188,7 @@
       "typeVersion": 2,
       "position": [1750, 420],
       "parameters": {
-        "jsCode": "const metrics = $('ar-aggregate-metrics').first().json;\nconst agentOutput = $('ar-ai-summary-agent').first().json;\n\n// Extract the generated text from agent output\nconst summaryText = agentOutput.output || agentOutput.text || JSON.stringify(agentOutput);\n\nconst reportTitle = metrics.reportType === 'weekly'\n  ? `Sales Swarm Wochenbericht — ${metrics.date}`\n  : `Sales Swarm Tagesbericht — ${metrics.date}`;\n\n// Notion block structure for the dashboard update\nconst notionBlocks = [\n  {\n    object: 'block',\n    type: 'heading_2',\n    heading_2: {\n      rich_text: [{ type: 'text', text: { content: reportTitle } }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'paragraph',\n    paragraph: {\n      rich_text: [{\n        type: 'text',\n        text: {\n          content: `Leads gesamt: ${metrics.pipeline.total_leads} | Qualifiziert: ${metrics.pipeline.qualified} | Meetings: ${metrics.pipeline.meetings_booked} | Abschlüsse: ${metrics.pipeline.closed_won} | Konversion: ${metrics.pipeline.conversion_rate}`\n        }\n      }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'paragraph',\n    paragraph: {\n      rich_text: [{\n        type: 'text',\n        text: { content: summaryText }\n      }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'divider',\n    divider: {}\n  }\n];\n\n// Slack message (plain text with basic formatting)\nconst slackText = [\n  `*${reportTitle}*`,\n  '',\n  `*Pipeline:* ${metrics.pipeline.total_leads} Leads | ${metrics.pipeline.qualified} qualifiziert | ${metrics.pipeline.meetings_booked} Meetings | ${metrics.pipeline.closed_won} Abschlüsse (${metrics.pipeline.conversion_rate})`,\n  `*Swarm:* ${metrics.swarm.learnings_count} Learnings | ${metrics.swarm.leads_enriched} angereichert | Ø Score: ${metrics.swarm.avg_score}`,\n  '',\n  summaryText\n].join('\\n');\n\nreturn {\n  json: {\n    reportTitle,\n    summaryText,\n    notionBlocks,\n    slackText,\n    metrics\n  }\n};"
+        "jsCode": "const metrics = $('Aggregate All Metrics').first().json;\nconst agentOutput = $('AI Summary Agent').first().json;\n\n// Extract the generated text from agent output\nconst summaryText = agentOutput.output || agentOutput.text || JSON.stringify(agentOutput);\n\nconst reportTitle = metrics.reportType === 'weekly'\n  ? `Growth Swarm Wochenbericht — ${metrics.date}`\n  : `Growth Swarm Tagesbericht — ${metrics.date}`;\n\n// Notion block structure for the dashboard update\nconst notionBlocks = [\n  {\n    object: 'block',\n    type: 'heading_2',\n    heading_2: {\n      rich_text: [{ type: 'text', text: { content: reportTitle } }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'paragraph',\n    paragraph: {\n      rich_text: [{\n        type: 'text',\n        text: {\n          content: `Leads gesamt: ${metrics.pipeline.total_leads} | Qualifiziert: ${metrics.pipeline.qualified} | Meetings: ${metrics.pipeline.meetings_booked} | Abschlüsse: ${metrics.pipeline.closed_won} | Konversion: ${metrics.pipeline.conversion_rate}`\n        }\n      }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'paragraph',\n    paragraph: {\n      rich_text: [{\n        type: 'text',\n        text: { content: summaryText }\n      }]\n    }\n  },\n  {\n    object: 'block',\n    type: 'divider',\n    divider: {}\n  }\n];\n\n// Slack message (plain text with basic formatting)\nconst slackText = [\n  `*${reportTitle}*`,\n  '',\n  `*Pipeline:* ${metrics.pipeline.total_leads} Leads | ${metrics.pipeline.qualified} qualifiziert | ${metrics.pipeline.meetings_booked} Meetings | ${metrics.pipeline.closed_won} Abschlüsse (${metrics.pipeline.conversion_rate})`,\n  `*Swarm:* ${metrics.swarm.learnings_count} Learnings | ${metrics.swarm.leads_enriched} angereichert | Ø Score: ${metrics.swarm.avg_score}`,\n  '',\n  summaryText\n].join('\\n');\n\nreturn {\n  json: {\n    reportTitle,\n    summaryText,\n    notionBlocks,\n    slackText,\n    metrics\n  }\n};"
       }
     },
     {
@@ -227,6 +232,7 @@
           }
         }
       },
+      "continueOnFail": true,
       "credentials": {
         "httpHeaderAuth": {
           "id": "{{NOTION_CRED}}",
@@ -244,7 +250,7 @@
         "resource": "message",
         "operation": "post",
         "channel": "={{ $env.SLACK_CHANNEL_ID }}",
-        "text": "={{ $('ar-prepare-outputs').first().json.slackText }}",
+        "text": "={{ $('Prepare Notion & Slack Payload').first().json.slackText }}",
         "otherOptions": {
           "unfurl_links": false,
           "unfurl_media": false
@@ -264,7 +270,7 @@
       "typeVersion": 2,
       "position": [2000, 720],
       "parameters": {
-        "jsCode": "// Capture error context from any failing node\nconst errorData = {\n  workflow: 'Sales Swarm — Analytics Reporter',\n  timestamp: new Date().toISOString(),\n  error: $input.first().json.error || 'Unknown error',\n  node: $input.first().json.node || 'Unknown node'\n};\n\nconsole.error('Analytics Reporter error:', JSON.stringify(errorData));\n\nreturn { json: errorData };"
+        "jsCode": "// Capture error context from any failing node\nconst errorData = {\n  workflow: 'Growth Swarm — Analytics Reporter',\n  timestamp: new Date().toISOString(),\n  error: $input.first().json.error || 'Unknown error',\n  node: $input.first().json.node || 'Unknown node'\n};\n\nconsole.error('Analytics Reporter error:', JSON.stringify(errorData));\n\nreturn { json: errorData };"
       }
     },
     {

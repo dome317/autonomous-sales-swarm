@@ -1,6 +1,6 @@
 {
-  "name": "Sales Swarm — Lead Intelligence",
-  "tags": ["sales-swarm", "lead-intelligence", "research"],
+  "name": "Growth Swarm — Lead Intelligence",
+  "tags": ["growth-swarm", "lead-intelligence", "research"],
   "nodes": [
     {
       "id": "li-trigger",
@@ -53,7 +53,7 @@
     },
     {
       "id": "li-fetch-website",
-      "name": "Fetch Practice Website",
+      "name": "Fetch Company Website",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [750, 200],
@@ -80,7 +80,7 @@
           "parameters": [
             {
               "name": "User-Agent",
-              "value": "Mozilla/5.0 (compatible; Sales SwarmBot/1.0; +https://example.com)"
+              "value": "Mozilla/5.0 (compatible; SwarmBot/1.0; +https://example.com)"
             },
             {
               "name": "Accept",
@@ -118,8 +118,7 @@
       "typeVersion": 3,
       "position": [1250, 300],
       "parameters": {
-        "mode": "passThrough",
-        "output": "input1"
+        "mode": "append"
       }
     },
     {
@@ -130,10 +129,10 @@
       "position": [1500, 300],
       "parameters": {
         "options": {
-          "systemMessage": "Du bist ein spezialisierter Datenextraktions-Agent für B2B-Unternehmen. Deine Aufgabe ist es, strukturierte Informationen aus dem HTML-Inhalt einer Unternehmens-Website zu extrahieren.\n\n<aufgabe>\nAnalysiere den bereitgestellten Website-HTML und den Lead-Datensatz. Extrahiere alle verfügbaren Informationen und gib sie als JSON-Objekt zurück.\n</aufgabe>\n\n<ausgabe_format>\nDu MUSST exakt dieses JSON-Format zurückgeben — keine Markdown-Codeblöcke, kein Fließtext, nur reines JSON:\n\n{\n  \"practice_name\": \"Name der B2B-Unternehmen oder null\",\n  \"company_type\": \"Einzelpraxis | Gemeinschaftspraxis | MVZ | Klinik | null\",\n  \"team_size\": \"Geschätzte Anzahl Mitarbeiter als Zahl oder null\",\n  \"specializations\": [\"Liste der Spezialisierungen, z.B. Implantologie, KFO, Prophylaxe\"],\n  \"current_software\": \"Name der erkennbaren Business-Software/CRM oder null\",\n  \"online_booking\": true,\n  \"website_quality\": \"niedrig | mittel | hoch\",\n  \"pain_indicators\": [\"Liste potenzieller Schmerzpunkte, z.B. kein Online-Follow-up, veraltete Website, keine digitale Onboarding-Formular\"],\n  \"decision_maker\": \"Name des Geschäftsführers / Ansprechpartners oder null\",\n  \"languages_offered\": [\"Sprachen, die auf der Website angeboten werden\"],\n  \"has_proposal_info\": false,\n  \"has_digital_anamnese\": false,\n  \"social_media_present\": false,\n  \"extraction_confidence\": \"niedrig | mittel | hoch\",\n  \"extraction_notes\": \"Kurze Anmerkungen zur Datenqualität oder fehlenden Informationen\"\n}\n</ausgabe_format>\n\n<regeln>\n- Setze Felder auf null, wenn die Information nicht im HTML vorhanden ist — erfinde KEINE Daten\n- `website_quality` basiert auf Design, Mobilfreundlichkeit und Vollständigkeit\n- `pain_indicators` sind konkrete Hinweise, dass Sales Swarm helfen kann (kein Online-Proposal, manuelle Terminbuchung, keine Follow-up-Erinnerungen)\n- `extraction_confidence` ist niedrig bei Fetch-Fehlern, hoch bei vollständigem HTML\n- Antworte ausschließlich auf Deutsch, außer bei Eigennamen und Produktnamen\n- Rückgabe ist IMMER reines JSON, niemals Erklärungstext davor oder danach\n</regeln>"
+          "systemMessage": "Du bist ein spezialisierter Datenextraktions-Agent für Unternehmen. Deine Aufgabe ist es, strukturierte Informationen aus dem HTML-Inhalt einer Unternehmens-Website zu extrahieren.\n\n<aufgabe>\nAnalysiere den bereitgestellten Website-HTML und den Lead-Datensatz. Extrahiere alle verfügbaren Informationen und gib sie als JSON-Objekt zurück.\n</aufgabe>\n\n<ausgabe_format>\nDu MUSST exakt dieses JSON-Format zurückgeben — keine Markdown-Codeblöcke, kein Fließtext, nur reines JSON:\n\n{\n  \"company_name\": \"Name des Unternehmens oder null\",\n  \"company_type\": \"Kleinunternehmen | Mittelständisches Unternehmen | Enterprise | Großunternehmen | null\",\n  \"team_size\": \"Geschätzte Anzahl Mitarbeiter als Zahl oder null\",\n  \"services\": [\"Liste der angebotenen Dienstleistungen und Schwerpunkte\"],\n  \"current_software\": \"Name der erkennbaren Bestandssoftware/CRM oder null\",\n  \"has_online_sales\": true,\n  \"website_quality\": \"niedrig | mittel | hoch\",\n  \"pain_indicators\": [\"Liste potenzieller Schmerzpunkte, z.B. kein digitaler Vertriebsprozess, veraltete Website, kein digitales Intake-Formular\"],\n  \"decision_maker\": \"Name des Geschäftsführers / Ansprechpartners oder null\",\n  \"languages_offered\": [\"Sprachen, die auf der Website angeboten werden\"],\n  \"has_proposal_tracking\": false,\n  \"has_digital_intake\": false,\n  \"social_media_present\": false,\n  \"extraction_confidence\": \"niedrig | mittel | hoch\",\n  \"extraction_notes\": \"Kurze Anmerkungen zur Datenqualität oder fehlenden Informationen\"\n}\n</ausgabe_format>\n\n<regeln>\n- Setze Felder auf null, wenn die Information nicht im HTML vorhanden ist — erfinde KEINE Daten\n- `website_quality` basiert auf Design, Mobilfreundlichkeit und Vollständigkeit\n- `pain_indicators` sind konkrete Hinweise, dass die Lösung helfen kann (kein digitaler Angebotsprozess, manuelle Terminbuchung, keine Follow-up-Erinnerungen)\n- `extraction_confidence` ist niedrig bei Fetch-Fehlern, hoch bei vollständigem HTML\n- Antworte ausschließlich auf Deutsch, außer bei Eigennamen und Produktnamen\n- Rückgabe ist IMMER reines JSON, niemals Erklärungstext davor oder danach\n</regeln>"
         },
         "promptType": "define",
-        "text": "=Analysiere die folgenden Daten und extrahiere strukturierte Unternehmen-Informationen.\n\n## Lead-Datensatz\n```json\n{{ JSON.stringify({ lead_id: $json.lead_id, email: $json.email, first_name: $json.first_name, last_name: $json.last_name, company: $json.company, phone: $json.phone, website_url: $json.website_url, source: $json.source }, null, 2) }}\n```\n\n## Website HTML (bereinigt, max. 12.000 Zeichen)\n```\n{{ $json.website_html }}\n```\n\nGib ausschließlich das JSON-Objekt zurück."
+        "text": "=Analysiere die folgenden Daten und extrahiere strukturierte Unternehmens-Informationen.\n\n## Lead-Datensatz\n```json\n{{ JSON.stringify({ lead_id: $json.lead_id, email: $json.email, first_name: $json.first_name, last_name: $json.last_name, company: $json.company, phone: $json.phone, website_url: $json.website_url, source: $json.source }, null, 2) }}\n```\n\n## Website HTML (bereinigt, max. 12.000 Zeichen)\n```\n{{ $json.website_html }}\n```\n\nGib ausschließlich das JSON-Objekt zurück."
       },
       "credentials": {
         "anthropicApi": {
@@ -149,7 +148,11 @@
       "typeVersion": 1.3,
       "position": [1500, 500],
       "parameters": {
-        "model": "claude-sonnet-4-5",
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-4-5"
+        },
         "options": {
           "maxTokens": 1024,
           "temperature": 0
@@ -179,7 +182,7 @@
       "typeVersion": 1,
       "position": [2000, 200],
       "parameters": {
-        "operation": "insert",
+        "operation": "create",
         "tableId": "lead_memory",
         "dataToSend": "defineBelow",
         "fieldsToSend": {
@@ -230,7 +233,7 @@
             "customPropertiesValues": [
               {
                 "property": "swarm_company_name",
-                "value": "={{ $json.practice_name || '' }}"
+                "value": "={{ $json.company_name || '' }}"
               },
               {
                 "property": "swarm_company_type",
@@ -241,16 +244,16 @@
                 "value": "={{ $json.team_size || '' }}"
               },
               {
-                "property": "swarm_specializations",
-                "value": "={{ ($json.specializations || []).join(';') }}"
+                "property": "swarm_services",
+                "value": "={{ ($json.services || []).join(';') }}"
               },
               {
-                "property": "swarm_current_tools",
+                "property": "swarm_current_software",
                 "value": "={{ $json.current_software || '' }}"
               },
               {
-                "property": "swarm_online_booking",
-                "value": "={{ $json.online_booking ? 'true' : 'false' }}"
+                "property": "swarm_has_online_sales",
+                "value": "={{ $json.has_online_sales ? 'true' : 'false' }}"
               },
               {
                 "property": "swarm_website_quality",
@@ -300,152 +303,181 @@
       "parameters": {
         "mode": "manual",
         "includeOtherFields": false,
-        "fields": {
-          "values": [
+        "assignments": {
+          "assignments": [
             {
+              "id": "assign-1",
               "name": "lead_id",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.lead_id }}"
+              "value": "={{ $('Parse Agent Output').first().json.lead_id }}",
+              "type": "string"
             },
             {
+              "id": "assign-2",
               "name": "email",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.email }}"
+              "value": "={{ $('Parse Agent Output').first().json.email }}",
+              "type": "string"
             },
             {
+              "id": "assign-3",
               "name": "first_name",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.first_name }}"
+              "value": "={{ $('Parse Agent Output').first().json.first_name }}",
+              "type": "string"
             },
             {
+              "id": "assign-4",
               "name": "last_name",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.last_name }}"
+              "value": "={{ $('Parse Agent Output').first().json.last_name }}",
+              "type": "string"
             },
             {
+              "id": "assign-5",
               "name": "company",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.company }}"
+              "value": "={{ $('Parse Agent Output').first().json.company }}",
+              "type": "string"
             },
             {
+              "id": "assign-6",
               "name": "phone",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.phone }}"
+              "value": "={{ $('Parse Agent Output').first().json.phone }}",
+              "type": "string"
             },
             {
+              "id": "assign-7",
               "name": "website_url",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.website_url }}"
+              "value": "={{ $('Parse Agent Output').first().json.website_url }}",
+              "type": "string"
             },
             {
+              "id": "assign-8",
               "name": "source",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.source }}"
+              "value": "={{ $('Parse Agent Output').first().json.source }}",
+              "type": "string"
             },
             {
+              "id": "assign-9",
               "name": "hubspot_contact_id",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.hubspot_contact_id }}"
+              "value": "={{ $('Parse Agent Output').first().json.hubspot_contact_id }}",
+              "type": "string"
             },
             {
-              "name": "practice_name",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.practice_name }}"
+              "id": "assign-10",
+              "name": "company_name",
+              "value": "={{ $('Parse Agent Output').first().json.company_name }}",
+              "type": "string"
             },
             {
+              "id": "assign-11",
               "name": "company_type",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.company_type }}"
+              "value": "={{ $('Parse Agent Output').first().json.company_type }}",
+              "type": "string"
             },
             {
+              "id": "assign-12",
               "name": "team_size",
-              "type": "number",
-              "value": "={{ $('Parse Agent Output').first().json.team_size }}"
+              "value": "={{ $('Parse Agent Output').first().json.team_size }}",
+              "type": "number"
             },
             {
-              "name": "specializations",
-              "type": "array",
-              "value": "={{ $('Parse Agent Output').first().json.specializations || [] }}"
+              "id": "assign-13",
+              "name": "services",
+              "value": "={{ $('Parse Agent Output').first().json.services || [] }}",
+              "type": "array"
             },
             {
+              "id": "assign-14",
               "name": "current_software",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.current_software }}"
+              "value": "={{ $('Parse Agent Output').first().json.current_software }}",
+              "type": "string"
             },
             {
-              "name": "online_booking",
-              "type": "boolean",
-              "value": "={{ $('Parse Agent Output').first().json.online_booking || false }}"
+              "id": "assign-15",
+              "name": "has_online_sales",
+              "value": "={{ $('Parse Agent Output').first().json.has_online_sales || false }}",
+              "type": "boolean"
             },
             {
+              "id": "assign-16",
               "name": "website_quality",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.website_quality }}"
+              "value": "={{ $('Parse Agent Output').first().json.website_quality }}",
+              "type": "string"
             },
             {
+              "id": "assign-17",
               "name": "pain_indicators",
-              "type": "array",
-              "value": "={{ $('Parse Agent Output').first().json.pain_indicators || [] }}"
+              "value": "={{ $('Parse Agent Output').first().json.pain_indicators || [] }}",
+              "type": "array"
             },
             {
+              "id": "assign-18",
               "name": "decision_maker",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.decision_maker }}"
+              "value": "={{ $('Parse Agent Output').first().json.decision_maker }}",
+              "type": "string"
             },
             {
+              "id": "assign-19",
               "name": "languages_offered",
-              "type": "array",
-              "value": "={{ $('Parse Agent Output').first().json.languages_offered || [] }}"
+              "value": "={{ $('Parse Agent Output').first().json.languages_offered || [] }}",
+              "type": "array"
             },
             {
-              "name": "has_proposal_info",
-              "type": "boolean",
-              "value": "={{ $('Parse Agent Output').first().json.has_proposal_info || false }}"
+              "id": "assign-20",
+              "name": "has_proposal_tracking",
+              "value": "={{ $('Parse Agent Output').first().json.has_proposal_tracking || false }}",
+              "type": "boolean"
             },
             {
-              "name": "has_digital_anamnese",
-              "type": "boolean",
-              "value": "={{ $('Parse Agent Output').first().json.has_digital_anamnese || false }}"
+              "id": "assign-21",
+              "name": "has_digital_intake",
+              "value": "={{ $('Parse Agent Output').first().json.has_digital_intake || false }}",
+              "type": "boolean"
             },
             {
+              "id": "assign-22",
               "name": "social_media_present",
-              "type": "boolean",
-              "value": "={{ $('Parse Agent Output').first().json.social_media_present || false }}"
+              "value": "={{ $('Parse Agent Output').first().json.social_media_present || false }}",
+              "type": "boolean"
             },
             {
+              "id": "assign-23",
               "name": "extraction_confidence",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.extraction_confidence }}"
+              "value": "={{ $('Parse Agent Output').first().json.extraction_confidence }}",
+              "type": "string"
             },
             {
+              "id": "assign-24",
               "name": "extraction_notes",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.extraction_notes }}"
+              "value": "={{ $('Parse Agent Output').first().json.extraction_notes }}",
+              "type": "string"
             },
             {
+              "id": "assign-25",
               "name": "enrichment_timestamp",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.enrichment_timestamp }}"
+              "value": "={{ $('Parse Agent Output').first().json.enrichment_timestamp }}",
+              "type": "string"
             },
             {
+              "id": "assign-26",
               "name": "enrichment_source",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.enrichment_source }}"
+              "value": "={{ $('Parse Agent Output').first().json.enrichment_source }}",
+              "type": "string"
             },
             {
+              "id": "assign-27",
               "name": "website_fetch_error",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.website_fetch_error }}"
+              "value": "={{ $('Parse Agent Output').first().json.website_fetch_error }}",
+              "type": "string"
             },
             {
+              "id": "assign-28",
               "name": "website_fetch_skipped",
-              "type": "boolean",
-              "value": "={{ $('Parse Agent Output').first().json.website_fetch_skipped || false }}"
+              "value": "={{ $('Parse Agent Output').first().json.website_fetch_skipped || false }}",
+              "type": "boolean"
             },
             {
+              "id": "assign-29",
               "name": "enrichment_parse_error",
-              "type": "string",
-              "value": "={{ $('Parse Agent Output').first().json.enrichment_parse_error }}"
+              "value": "={{ $('Parse Agent Output').first().json.enrichment_parse_error }}",
+              "type": "string"
             }
           ]
         }
@@ -468,7 +500,7 @@
       "main": [
         [
           {
-            "node": "Fetch Practice Website",
+            "node": "Fetch Company Website",
             "type": "main",
             "index": 0
           }
@@ -482,7 +514,7 @@
         ]
       ]
     },
-    "Fetch Practice Website": {
+    "Fetch Company Website": {
       "main": [
         [
           {

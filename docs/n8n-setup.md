@@ -91,6 +91,7 @@ In each workflow, update credential references:
 - Replace `{{HUBSPOT_CRED}}` with your HubSpot credential name
 - Replace `{{SUPABASE_CRED}}` with your Supabase credential name
 - Replace `{{ANTHROPIC_CRED}}` with your Anthropic credential name
+- Replace `{{OPENAI_CRED}}` with your OpenAI credential name (used for embeddings in WF02, WF03, WF05)
 - And so on for Gmail, Slack, etc.
 
 ## Step 7: Activate Workflows

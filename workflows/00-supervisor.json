@@ -1,6 +1,6 @@
 {
-  "name": "Sales Swarm — Supervisor",
-  "tags": ["sales-swarm", "supervisor", "orchestrator"],
+  "name": "Growth Swarm — Supervisor",
+  "tags": ["growth-swarm", "supervisor", "orchestrator"],
   "nodes": [
     {
       "id": "sup-sticky-setup",
@@ -9,7 +9,7 @@
       "typeVersion": 1,
       "position": [0, 0],
       "parameters": {
-        "content": "## Sales Swarm — Supervisor Setup\n\n### Required Credentials\n1. **ANTHROPIC_CRED** — Anthropic API Key\n   - Create in n8n: Settings → Credentials → New → Anthropic API\n   - Key: `ANTHROPIC_API_KEY` from console.anthropic.com\n\n2. **SLACK_CRED** — Slack Bot Token\n   - Create in n8n: Settings → Credentials → New → Slack API\n   - Token: `xoxb-...` with `chat:write` scope\n   - Set `SLACK_ESCALATION_CHANNEL` in env (default: #swarm-alerts)\n\n### Webhook URL\n```\nPOST https://YOUR_N8N_HOST/webhook/swarm-lead-intake\nHeader: X-Sales Swarm-Auth: YOUR_HEADER_AUTH_SECRET\n```\n\n### Sub-Workflow IDs\nAfter importing all workflows, update the Execute Workflow nodes with actual workflow IDs:\n- `sup-exec-research` → workflow ID of 01-lead-intelligence\n- `sup-exec-qualify` → workflow ID of 02-qualification-scoring\n- `sup-exec-outreach` → workflow ID of 03-outreach-orchestrator\n\n### Slack Channel\nUpdate the `sup-slack-escalate` node with your escalation channel name.",
+        "content": "## Growth Swarm — Supervisor Setup\n\n### Required Credentials\n1. **ANTHROPIC_CRED** — Anthropic API Key\n   - Create in n8n: Settings → Credentials → New → Anthropic API\n   - Key: `ANTHROPIC_API_KEY` from console.anthropic.com\n\n2. **SLACK_CRED** — Slack Bot Token\n   - Create in n8n: Settings → Credentials → New → Slack API\n   - Token: `xoxb-...` with `chat:write` scope\n   - Set `SLACK_ESCALATION_CHANNEL` in env (default: #swarm-alerts)\n\n### Webhook URL\n```\nPOST https://YOUR_N8N_HOST/webhook/swarm-lead-intake\nHeader: X-Swarm-Auth: YOUR_HEADER_AUTH_SECRET\n```\n\n### Sub-Workflow IDs\nAfter importing all workflows, update the Execute Workflow nodes with actual workflow IDs:\n- `sup-exec-research` → workflow ID of 01-lead-intelligence\n- `sup-exec-qualify` → workflow ID of 02-qualification-scoring\n- `sup-exec-outreach` → workflow ID of 03-outreach-orchestrator\n\n### Slack Channel\nUpdate the `sup-slack-escalate` node with your escalation channel name.",
         "height": 420,
         "width": 380,
         "color": 5
@@ -46,7 +46,7 @@
       "credentials": {
         "httpHeaderAuth": {
           "id": "header-auth-cred",
-          "name": "Sales Swarm Webhook Header Auth"
+          "name": "Swarm Webhook Header Auth"
         }
       },
       "webhookId": "swarm-lead-intake"
@@ -69,7 +69,7 @@
       "position": [750, 300],
       "parameters": {
         "options": {
-          "systemMessage": "Du bist der Supervisor des Sales Swarm Growth Swarms. Du steuerst den gesamten Lead-Lebenszyklus.\n\nDeine Aufgabe: Analysiere den eingehenden Lead und entscheide, welche Route als nächstes ausgeführt werden soll.\n\n## Routing-Logik\n\n1. **research** — Lead ist neu, noch nicht angereichert\n   - Bedingung: enrichment_status ist null oder 'pending'\n   - Fehlende Felder: website, company_type, team_size, current_software\n\n2. **qualify** — Lead ist angereichert, hat aber noch keinen Score\n   - Bedingung: enrichment_status == 'complete' AND (score ist null oder 0)\n\n3. **outreach** — Lead ist qualifiziert und warm/hot\n   - Bedingung: score >= 45 AND tier IN ('warm', 'hot') AND outreach_status ist null oder 'pending'\n\n4. **nurture** — Lead ist kalt\n   - Bedingung: tier == 'cold' OR score < 45\n\n5. **escalate** — Fehler oder menschliche Intervention nötig\n   - Bedingung: Pflichtfelder fehlen (email, name), Duplikat-Verdacht, oder explizites 'escalate' Flag\n\n## Wichtige Regeln\n- Entscheide NUR basierend auf vorhandenen Daten — erfinde keine Informationen\n- Bei fehlenden Pflichtfeldern (email, name): IMMER escalate\n- Maximale Durchlaufzeit: 48h von Eingang bis erstem Outreach\n- Dokumentiere jede Entscheidung im 'reasoning' Feld\n\n## Output-Format\n\nAntworte IMMER ausschließlich in diesem exakten JSON-Format (kein Markdown, kein Text darum herum):\n\n```json\n{\n  \"route\": \"research | qualify | outreach | nurture | escalate\",\n  \"reasoning\": \"Kurze Begründung der Routing-Entscheidung auf Deutsch\",\n  \"priority\": \"high | medium | low\",\n  \"next_check_hours\": 24\n}\n```"
+          "systemMessage": "Du bist der Supervisor des Growth Swarms. Du steuerst den gesamten Lead-Lebenszyklus.\n\nDeine Aufgabe: Analysiere den eingehenden Lead und entscheide, welche Route als nächstes ausgeführt werden soll.\n\n## Routing-Logik\n\n1. **research** — Lead ist neu, noch nicht angereichert\n   - Bedingung: enrichment_status ist null oder 'pending'\n   - Fehlende Felder: website, company_type, team_size, current_software\n\n2. **qualify** — Lead ist angereichert, hat aber noch keinen Score\n   - Bedingung: enrichment_status == 'complete' AND (score ist null oder 0)\n\n3. **outreach** — Lead ist qualifiziert und warm/hot\n   - Bedingung: score >= 45 AND tier IN ('warm', 'hot') AND outreach_status ist null oder 'pending'\n\n4. **nurture** — Lead ist kalt\n   - Bedingung: tier == 'cold' OR score < 45\n\n5. **escalate** — Fehler oder menschliche Intervention nötig\n   - Bedingung: Pflichtfelder fehlen (email, name), Duplikat-Verdacht, oder explizites 'escalate' Flag\n\n## Wichtige Regeln\n- Entscheide NUR basierend auf vorhandenen Daten — erfinde keine Informationen\n- Bei fehlenden Pflichtfeldern (email, name): IMMER escalate\n- Maximale Durchlaufzeit: 48h von Eingang bis erstem Outreach\n- Dokumentiere jede Entscheidung im 'reasoning' Feld\n\n## Output-Format\n\nAntworte IMMER ausschließlich in diesem exakten JSON-Format (kein Markdown, kein Text darum herum):\n\n```json\n{\n  \"route\": \"research | qualify | outreach | nurture | escalate\",\n  \"reasoning\": \"Kurze Begründung der Routing-Entscheidung auf Deutsch\",\n  \"priority\": \"high | medium | low\",\n  \"next_check_hours\": 24\n}\n```"
         },
         "promptType": "define",
         "text": "Analysiere diesen Lead und gib deine Routing-Entscheidung als JSON zurück:\n\n{{ JSON.stringify($json, null, 2) }}"
@@ -82,7 +82,11 @@
       "typeVersion": 1.3,
       "position": [750, 520],
       "parameters": {
-        "model": "claude-sonnet-4-5",
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-4-5"
+        },
         "options": {
           "maxTokens": 512,
           "temperature": 0
@@ -91,7 +95,7 @@
       "credentials": {
         "anthropicApi": {
           "id": "{{ANTHROPIC_CRED}}",
-          "name": "Anthropic — Sales Swarm"
+          "name": "Anthropic — Growth Swarm"
         }
       }
     },
@@ -293,42 +297,49 @@
       "parameters": {
         "mode": "manual",
         "duplicateItem": false,
-        "fields": {
-          "values": [
+        "assignments": {
+          "assignments": [
             {
+              "id": "assign-1",
               "name": "lead_id",
-              "type": "stringValue",
-              "value": "={{ $json.lead_id }}"
+              "value": "={{ $json.lead_id }}",
+              "type": "string"
             },
             {
+              "id": "assign-2",
               "name": "email",
-              "type": "stringValue",
-              "value": "={{ $json.email }}"
+              "value": "={{ $json.email }}",
+              "type": "string"
             },
             {
+              "id": "assign-3",
               "name": "nurture_status",
-              "type": "stringValue",
-              "value": "enrolled"
+              "value": "enrolled",
+              "type": "string"
             },
             {
+              "id": "assign-4",
               "name": "nurture_enrolled_at",
-              "type": "stringValue",
-              "value": "={{ new Date().toISOString() }}"
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
             },
             {
+              "id": "assign-5",
               "name": "route_decision",
-              "type": "stringValue",
-              "value": "nurture"
+              "value": "nurture",
+              "type": "string"
             },
             {
+              "id": "assign-6",
               "name": "reasoning",
-              "type": "stringValue",
-              "value": "={{ $json.reasoning }}"
+              "value": "={{ $json.reasoning }}",
+              "type": "string"
             },
             {
+              "id": "assign-7",
               "name": "next_check_hours",
-              "type": "numberValue",
-              "value": "={{ $json.next_check_hours }}"
+              "value": "={{ $json.next_check_hours }}",
+              "type": "number"
             }
           ]
         },
@@ -345,7 +356,7 @@
         "resource": "message",
         "operation": "post",
         "channel": "#swarm-alerts",
-        "text": ":rotating_light: *Sales Swarm — Eskalation erforderlich*\n\n*Lead ID:* {{ $json.lead_id }}\n*E-Mail:* {{ $json.email }}\n*Priorität:* {{ $json.priority }}\n*Begründung:* {{ $json.reasoning }}\n*Zeitpunkt:* {{ $json.decided_at }}\n\n_Bitte manuell prüfen und im CRM aktualisieren._",
+        "text": ":rotating_light: *Growth Swarm — Eskalation erforderlich*\n\n*Lead ID:* {{ $json.lead_id }}\n*E-Mail:* {{ $json.email }}\n*Priorität:* {{ $json.priority }}\n*Begründung:* {{ $json.reasoning }}\n*Zeitpunkt:* {{ $json.decided_at }}\n\n_Bitte manuell prüfen und im CRM aktualisieren._",
         "otherOptions": {
           "mrkdwn": true
         }
@@ -353,7 +364,7 @@
       "credentials": {
         "slackApi": {
           "id": "{{SLACK_CRED}}",
-          "name": "Slack — Sales Swarm"
+          "name": "Slack — Growth Swarm"
         }
       }
     },
@@ -394,7 +405,7 @@
       "typeVersion": 2,
       "position": [500, 620],
       "parameters": {
-        "jsCode": "const error = $input.first().json;\n\nreturn {\n  json: {\n    workflow: 'Sales Swarm — Supervisor',\n    error_message: error.error?.message || 'Unknown error',\n    error_node: error.node?.name || 'Unknown node',\n    execution_id: error.execution?.id || 'N/A',\n    failed_at: new Date().toISOString(),\n    slack_text: `:fire: *Sales Swarm — Supervisor FEHLER*\\n\\n*Workflow:* Sales Swarm — Supervisor\\n*Node:* ${error.node?.name || 'Unbekannt'}\\n*Fehler:* ${error.error?.message || 'Unbekannt'}\\n*Execution ID:* ${error.execution?.id || 'N/A'}\\n*Zeitpunkt:* ${new Date().toISOString()}\\n\\n_Bitte Logs im n8n Dashboard prüfen._`\n  }\n};"
+        "jsCode": "const error = $input.first().json;\n\nreturn {\n  json: {\n    workflow: 'Growth Swarm — Supervisor',\n    error_message: error.error?.message || 'Unknown error',\n    error_node: error.node?.name || 'Unknown node',\n    execution_id: error.execution?.id || 'N/A',\n    failed_at: new Date().toISOString(),\n    slack_text: `:fire: *Growth Swarm — Supervisor FEHLER*\\n\\n*Workflow:* Growth Swarm — Supervisor\\n*Node:* ${error.node?.name || 'Unbekannt'}\\n*Fehler:* ${error.error?.message || 'Unbekannt'}\\n*Execution ID:* ${error.execution?.id || 'N/A'}\\n*Zeitpunkt:* ${new Date().toISOString()}\\n\\n_Bitte Logs im n8n Dashboard prüfen._`\n  }\n};"
       }
     },
     {
@@ -415,7 +426,7 @@
       "credentials": {
         "slackApi": {
           "id": "{{SLACK_CRED}}",
-          "name": "Slack — Sales Swarm"
+          "name": "Slack — Growth Swarm"
         }
       }
     }

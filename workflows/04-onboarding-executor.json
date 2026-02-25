@@ -1,6 +1,6 @@
 {
-  "name": "Sales Swarm — Onboarding Executor",
-  "tags": ["sales-swarm", "onboarding", "post-sale"],
+  "name": "Growth Swarm — Onboarding Executor",
+  "tags": ["growth-swarm", "onboarding", "post-sale"],
   "settings": {
     "executionOrder": "v1"
   },
@@ -136,7 +136,7 @@
             "hs_lead_status",
             "company_type",
             "company_size",
-            "crm_system",
+            "current_software",
             "pain_points",
             "website"
           ]
@@ -155,7 +155,7 @@
       "typeVersion": 2,
       "position": [1250, 300],
       "parameters": {
-        "jsCode": "// Merge deal and contact into a unified onboarding profile\nconst deal = $('HubSpot — Get Deal Details').item.json;\nconst contact = $('HubSpot — Get Associated Contact').item.json;\n\nconst props = contact.properties || contact;\nconst dealProps = deal.properties || deal;\n\nconst profile = {\n  deal_id: deal.id,\n  deal_name: dealProps.dealname || 'Unbenannter Deal',\n  deal_amount: dealProps.amount ? parseFloat(dealProps.amount) : 0,\n  close_date: dealProps.closedate || new Date().toISOString(),\n  owner_id: dealProps.hubspot_owner_id || null,\n\n  contact_id: contact.id,\n  firstname: props.firstname || '',\n  lastname: props.lastname || '',\n  email: props.email || '',\n  phone: props.phone || '',\n  company: props.company || '',\n  jobtitle: props.jobtitle || '',\n  city: props.city || '',\n\n  company_type: props.company_type || 'Standardkunde',\n  company_size: props.company_size || 'mittel',\n  crm_system: props.crm_system || 'unbekannt',\n  pain_points: props.pain_points || '',\n  website: props.website || '',\n\n  onboarding_date: new Date().toISOString(),\n  full_name: `${props.firstname || ''} ${props.lastname || ''}`.trim()\n};\n\nreturn { json: profile };"
+        "jsCode": "// Merge deal and contact into a unified onboarding profile\nconst deal = $('HubSpot — Get Deal Details').item.json;\nconst contact = $('HubSpot — Get Associated Contact').item.json;\n\nconst props = contact.properties || contact;\nconst dealProps = deal.properties || deal;\n\nconst profile = {\n  deal_id: deal.id,\n  deal_name: dealProps.dealname || 'Unbenannter Deal',\n  deal_amount: dealProps.amount ? parseFloat(dealProps.amount) : 0,\n  close_date: dealProps.closedate || new Date().toISOString(),\n  owner_id: dealProps.hubspot_owner_id || null,\n\n  contact_id: contact.id,\n  firstname: props.firstname || '',\n  lastname: props.lastname || '',\n  email: props.email || '',\n  phone: props.phone || '',\n  company: props.company || '',\n  jobtitle: props.jobtitle || '',\n  city: props.city || '',\n\n  company_type: props.company_type || 'Mittelstand',\n  company_size: props.company_size || 'mittel',\n  current_software: props.current_software || 'unbekannt',\n  pain_points: props.pain_points || '',\n  website: props.website || '',\n\n  onboarding_date: new Date().toISOString(),\n  full_name: `${props.firstname || ''} ${props.lastname || ''}`.trim()\n};\n\nreturn { json: profile };"
       }
     },
     {
@@ -166,9 +166,9 @@
       "position": [1500, 300],
       "parameters": {
         "options": {
-          "systemMessage": "<role>\nDu bist der Sales Swarm Onboarding-Spezialist. Du erstellst hochpersonalisierte Onboarding-Inhalte für neu gewonnene B2B-Unternehmen, die Sales Swarm als Business-Software einsetzen werden.\n</role>\n\n<kontext>\nSales Swarm ist eine B2B-SaaS-Lösung, die Unternehmen bei Proposal-Nachverfolgung, Terminbestätigungen, digitaler Onboarding-Formular und Kundenkommunikation unterstützt.\n</kontext>\n\n<aufgabe>\nAnalysiere das Unternehmensprofil und erstelle alle Onboarding-Inhalte in strukturiertem JSON. Passe JEDEN Text individuell an die Unternehmen an — keine Generik.\n</aufgabe>\n\n<ausgabe_format>\nGib ausschließlich valides JSON zurück mit diesen Feldern:\n\n```json\n{\n  \"welcome_email\": {\n    \"subject\": \"...\",\n    \"body_html\": \"...\"\n  },\n  \"calendar_event\": {\n    \"title\": \"...\",\n    \"description\": \"...\",\n    \"duration_minutes\": 45,\n    \"agenda\": [\"...\", \"...\"]\n  },\n  \"notion_page\": {\n    \"title\": \"...\",\n    \"sections\": {\n      \"company_overview\": \"...\",\n      \"setup_steps\": [\"...\", \"...\"],\n      \"crm_integration_notes\": \"...\",\n      \"erste_30_tage\": \"...\",\n      \"ansprechpartner\": \"...\"\n    }\n  },\n  \"task_list\": [\n    {\"title\": \"...\", \"due_days\": 7, \"priority\": \"HIGH\"},\n    {\"title\": \"...\", \"due_days\": 30, \"priority\": \"MEDIUM\"}\n  ],\n  \"slack_summary\": \"...\"\n}\n```\n</ausgabe_format>\n\n<stil_richtlinien>\n- Sprache: Deutsch, Du-Form, professionell aber herzlich\n- B2B-Expertise zeigen: Proposal, Follow-up, Onboarding-Formular, Office-Manager korrekt verwenden\n- Unternehmensgröße berücksichtigen: Solo vs. Gemeinschaft vs. MVZ\n- CRM-System erwähnen, falls bekannt (z.B. Salesforce, HubSpot, Pipedrive)\n- Pain Points aus der Qualifizierung adressieren\n- Onboarding-E-Mail: max. 300 Wörter, konkret, mit nächsten Schritten\n</stil_richtlinien>\n\n<qualitaets_check>\nVor der Ausgabe prüfen:\n- Ist der Unternehmenname korrekt eingesetzt?\n- Sind die Pain Points aus dem Verkaufsprozess adressiert?\n- Ist der Kalender-Titel professionell und eindeutig?\n- Enthält die Notion-Seite alle Schritte für den ersten Tag?\n</qualitaets_check>"
+          "systemMessage": "<role>\nDu bist der Growth Swarm Onboarding-Spezialist. Du erstellst hochpersonalisierte Onboarding-Inhalte für neu gewonnene Unternehmen, die Growth Swarm als Vertriebsplattform einsetzen werden.\n</role>\n\n<kontext>\nGrowth Swarm ist eine B2B-SaaS-Lösung, die Unternehmen bei Lead-Nachverfolgung, Terminbestätigungen, digitalem Onboarding und Kundenkommunikation unterstützt.\n</kontext>\n\n<aufgabe>\nAnalysiere das Unternehmensprofil und erstelle alle Onboarding-Inhalte in strukturiertem JSON. Passe JEDEN Text individuell an das Unternehmen an — keine Generik.\n</aufgabe>\n\n<ausgabe_format>\nGib ausschließlich valides JSON zurück mit diesen Feldern:\n\n```json\n{\n  \"welcome_email\": {\n    \"subject\": \"...\",\n    \"body_html\": \"...\"\n  },\n  \"calendar_event\": {\n    \"title\": \"...\",\n    \"description\": \"...\",\n    \"duration_minutes\": 45,\n    \"agenda\": [\"...\", \"...\"]\n  },\n  \"notion_page\": {\n    \"title\": \"...\",\n    \"sections\": {\n      \"company_overview\": \"...\",\n      \"setup_steps\": [\"...\", \"...\"],\n      \"software_integration_notes\": \"...\",\n      \"erste_30_tage\": \"...\",\n      \"ansprechpartner\": \"...\"\n    }\n  },\n  \"task_list\": [\n    {\"title\": \"...\", \"due_days\": 7, \"priority\": \"HIGH\"},\n    {\"title\": \"...\", \"due_days\": 30, \"priority\": \"MEDIUM\"}\n  ],\n  \"slack_summary\": \"...\"\n}\n```\n</ausgabe_format>\n\n<stil_richtlinien>\n- Sprache: Deutsch, Du-Form, professionell aber herzlich\n- B2B-Expertise zeigen: Pipeline, Conversion, Follow-up, Churn korrekt verwenden\n- Unternehmensgröße berücksichtigen: Klein vs. Mittelstand vs. Enterprise\n- Bestandssoftware erwähnen, falls bekannt (z.B. Salesforce, HubSpot, Pipedrive)\n- Pain Points aus der Qualifizierung adressieren\n- Onboarding-E-Mail: max. 300 Wörter, konkret, mit nächsten Schritten\n</stil_richtlinien>\n\n<qualitaets_check>\nVor der Ausgabe prüfen:\n- Ist der Unternehmensname korrekt eingesetzt?\n- Sind die Pain Points aus dem Verkaufsprozess adressiert?\n- Ist der Kalender-Titel professionell und eindeutig?\n- Enthält die Notion-Seite alle Schritte für den ersten Tag?\n</qualitaets_check>"
         },
-        "text": "=Erstelle vollständige Onboarding-Inhalte für folgende Unternehmen:\n\n**Unternehmen:** {{ $json.company }} ({{ $json.company_type }})\n**Kontakt:** {{ $json.full_name }} ({{ $json.jobtitle }})\n**Stadt:** {{ $json.city }}\n**Unternehmensgröße:** {{ $json.company_size }}\n**CRM-System:** {{ $json.crm_system }}\n**Pain Points:** {{ $json.pain_points }}\n**Deal-Wert:** {{ $json.deal_amount }} EUR\n**Abschlussdatum:** {{ $json.close_date }}\n**Website:** {{ $json.website }}\n\nErstelle alle Onboarding-Inhalte auf Deutsch, individuell auf diese Unternehmen zugeschnitten."
+        "text": "=Erstelle vollständige Onboarding-Inhalte für folgendes Unternehmen:\n\n**Unternehmen:** {{ $json.company }} ({{ $json.company_type }})\n**Kontakt:** {{ $json.full_name }} ({{ $json.jobtitle }})\n**Stadt:** {{ $json.city }}\n**Unternehmensgröße:** {{ $json.company_size }}\n**Bestandssoftware:** {{ $json.current_software }}\n**Pain Points:** {{ $json.pain_points }}\n**Deal-Wert:** {{ $json.deal_amount }} EUR\n**Abschlussdatum:** {{ $json.close_date }}\n**Website:** {{ $json.website }}\n\nErstelle alle Onboarding-Inhalte auf Deutsch, individuell auf dieses Unternehmen zugeschnitten."
       },
       "credentials": {
         "anthropicApi": {
@@ -180,10 +180,14 @@
       "id": "onb-claude-lm",
       "name": "Claude Sonnet 4",
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
-      "typeVersion": 1,
+      "typeVersion": 1.3,
       "position": [1500, 520],
       "parameters": {
-        "model": "claude-sonnet-4-5",
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-4-5"
+        },
         "options": {
           "temperature": 0.4,
           "maxTokens": 4096
@@ -243,6 +247,7 @@
           "conferenceDataVersion": 1
         }
       },
+      "continueOnFail": true,
       "credentials": {
         "googleCalendarOAuth2Api": {
           "name": "{{GOOGLE_CALENDAR_CRED}}"
@@ -277,6 +282,7 @@
           "jsonOutput": "={\n  \"parent\": { \"database_id\": \"{{NOTION_ONBOARDING_DB_ID}}\" },\n  \"properties\": {\n    \"Name\": {\n      \"title\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.title) }} } }]\n    },\n    \"Unternehmen\": {\n      \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.company) }} } }]\n    },\n    \"Status\": {\n      \"select\": { \"name\": \"Onboarding Gestartet\" }\n    },\n    \"Deal ID\": {\n      \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.deal_id) }} } }]\n    },\n    \"Onboarding Datum\": {\n      \"date\": { \"start\": {{ JSON.stringify($json.onboarding_date) }} }\n    }\n  },\n  \"children\": [\n    {\n      \"object\": \"block\",\n      \"type\": \"heading_2\",\n      \"heading_2\": {\n        \"rich_text\": [{ \"text\": { \"content\": \"Unternehmensübersicht\" } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"paragraph\",\n      \"paragraph\": {\n        \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.sections.company_overview) }} } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"heading_2\",\n      \"heading_2\": {\n        \"rich_text\": [{ \"text\": { \"content\": \"Setup-Schritte\" } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"paragraph\",\n      \"paragraph\": {\n        \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.sections.setup_steps.join('\\n')) }} } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"heading_2\",\n      \"heading_2\": {\n        \"rich_text\": [{ \"text\": { \"content\": \"Erste 30 Tage\" } }]\n      }\n    },\n    {\n      \"object\": \"block\",\n      \"type\": \"paragraph\",\n      \"paragraph\": {\n        \"rich_text\": [{ \"text\": { \"content\": {{ JSON.stringify($json.onboarding_content.notion_page.sections.erste_30_tage) }} } }]\n      }\n    }\n  ]\n}"
         }
       },
+      "continueOnFail": true,
       "credentials": {
         "httpHeaderAuth": {
           "name": "{{NOTION_CRED}}"
@@ -301,6 +307,7 @@
           "appendAttribution": false
         }
       },
+      "continueOnFail": true,
       "credentials": {
         "gmailOAuth2": {
           "name": "{{GMAIL_CRED}}"
@@ -327,13 +334,14 @@
             "dealIds": ["={{ $('Code — DSGVO PII Check').item.json.deal_id }}"]
           },
           "metadata": {
-            "body": "7-Tage Check-in: Wie läuft das Onboarding bei {{ $('Code — DSGVO PII Check').item.json.company }}? Fragen zur Einrichtung? Proposal-Workflow funktioniert?",
+            "body": "7-Tage Check-in: Wie läuft das Onboarding bei {{ $('Code — DSGVO PII Check').item.json.company }}? Fragen zur Einrichtung? Pipeline-Workflow funktioniert?",
             "subject": "7-Tage Check-in — {{ $('Code — DSGVO PII Check').item.json.company }}",
             "status": "NOT_STARTED",
             "forObjectType": "CONTACT"
           }
         }
       },
+      "continueOnFail": true,
       "credentials": {
         "hubspotApi": {
           "name": "{{HUBSPOT_CRED}}"
@@ -360,13 +368,14 @@
             "dealIds": ["={{ $('Code — DSGVO PII Check').item.json.deal_id }}"]
           },
           "metadata": {
-            "body": "30-Tage Business Review mit {{ $('Code — DSGVO PII Check').item.json.company }}. Follow-up-Quote vor/nach Sales Swarm, Proposal-Rücklaufquote, Office-Manager-Feedback, Upgrade-Potenzial prüfen.",
+            "body": "30-Tage Business Review mit {{ $('Code — DSGVO PII Check').item.json.company }}. Follow-up-Rate vor/nach Growth Swarm, Angebotsannahme-Rate, Team-Feedback, Upgrade-Potenzial prüfen.",
             "subject": "30-Tage Review — {{ $('Code — DSGVO PII Check').item.json.company }}",
             "status": "NOT_STARTED",
             "forObjectType": "CONTACT"
           }
         }
       },
+      "continueOnFail": true,
       "credentials": {
         "hubspotApi": {
           "name": "{{HUBSPOT_CRED}}"
@@ -561,28 +570,6 @@
         [
           {
             "node": "HubSpot — Task 30-Day Review",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HubSpot — Task 7-Day Check-in": {
-      "main": [
-        [
-          {
-            "node": "Slack — Notify #swarm-onboarding",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HubSpot — Task 30-Day Review": {
-      "main": [
-        [
-          {
-            "node": "Slack — Notify #swarm-onboarding",
             "type": "main",
             "index": 0
           }

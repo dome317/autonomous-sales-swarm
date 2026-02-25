@@ -7,6 +7,7 @@ A **fully autonomous multi-agent sales pipeline** using n8n workflows. Superviso
 ### Tech Stack
 - **Orchestration**: n8n (self-hosted, Docker)
 - **LLMs**: Claude Sonnet 4 (primary), GPT-4o (fallback), Groq (speed tasks)
+- **Embeddings**: OpenAI text-embedding-3-small (1536-dim, for RAG query embedding in WF02, WF03, WF05)
 - **Vector DB**: Supabase (pgvector extension)
 - **CRM**: HubSpot (native n8n nodes)
 - **Comms**: Gmail/SendGrid, WhatsApp Business API, Slack
@@ -69,7 +70,7 @@ autonomous-sales-swarm/
 - Sub-workflow calls: `n8n-nodes-base.executeWorkflow` with `workflowId`
 - Error handling: try/catch → Slack alert fallback
 - Webhook nodes: Header Auth or Basic
-- Credentials: placeholder names `{{HUBSPOT_CRED}}`, `{{SUPABASE_CRED}}`
+- Credentials: placeholder names `{{HUBSPOT_CRED}}`, `{{SUPABASE_CRED}}`, `{{OPENAI_CRED}}`, `{{ANTHROPIC_CRED}}`
 
 ### Code Conventions
 - JavaScript in n8n Code Nodes: ES2022, no external imports (n8n sandbox)
