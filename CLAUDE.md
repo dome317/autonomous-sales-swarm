@@ -6,7 +6,7 @@ A **fully autonomous multi-agent sales pipeline** using n8n workflows. Superviso
 
 ### Tech Stack
 - **Orchestration**: n8n (self-hosted, Docker)
-- **LLMs**: Claude Sonnet 4 (primary), GPT-4o (fallback), Groq (speed tasks)
+- **LLMs**: Claude Sonnet 4 (primary), GPT-5.2 (fallback), Groq (speed tasks)
 - **Embeddings**: OpenAI text-embedding-3-small (1536-dim, for RAG query embedding in WF02, WF03, WF05)
 - **Vector DB**: Supabase (pgvector extension)
 - **CRM**: HubSpot (native n8n nodes)

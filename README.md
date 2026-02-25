@@ -230,7 +230,7 @@ autonomous-sales-swarm/
 |-----------|-----------|---------|
 | Orchestration | n8n 1.70+ | Workflow engine with AI Agent Nodes |
 | Primary LLM | Claude Sonnet 4 | Agent reasoning + German output |
-| Fallback LLM | GPT-4o | Secondary model |
+| Fallback LLM | GPT-5.2 | Secondary model |
 | Embeddings | OpenAI text-embedding-3-small | RAG query embedding (1536-dim) |
 | Vector DB | Supabase (pgvector) | RAG storage + lead memory |
 | CRM | HubSpot | Lead management |
